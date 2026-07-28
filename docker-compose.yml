@@ -1,0 +1,109 @@
+# Cortexa AI Agent Platform — local Compose plan (Phase 0)
+# Services are declared for orchestration planning only.
+# Application images are not implemented yet; do not expect a working stack boot.
+
+name: cortexa
+
+services:
+  backend:
+    image: python:3.12-slim
+    container_name: cortexa-backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      CORTEXA_API_HOST: 0.0.0.0
+      CORTEXA_API_PORT: 8000
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      OLLAMA_HOST: ollama
+    ports:
+      - "${CORTEXA_API_PORT:-8000}:8000"
+    command: ["sleep", "infinity"]
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - cortexa-net
+    restart: unless-stopped
+
+  frontend:
+    image: node:22-bookworm-slim
+    container_name: cortexa-frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      FRONTEND_PORT: 3000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    command: ["sleep", "infinity"]
+    depends_on:
+      - backend
+    networks:
+      - cortexa-net
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    container_name: cortexa-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cortexa}
+      POSTGRES_USER: ${POSTGRES_USER:-cortexa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - cortexa_postgres_data:/var/lib/postgresql/data
+    networks:
+      - cortexa-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cortexa} -d ${POSTGRES_DB:-cortexa}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:latest
+    container_name: cortexa-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - cortexa_redis_data:/data
+    networks:
+      - cortexa-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cortexa-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - cortexa_ollama_data:/root/.ollama
+    networks:
+      - cortexa-net
+    restart: unless-stopped
+
+networks:
+  cortexa-net:
+    name: cortexa-net
+    driver: bridge
+
+volumes:
+  cortexa_postgres_data:
+    name: cortexa_postgres_data
+  cortexa_redis_data:
+    name: cortexa_redis_data
+  cortexa_ollama_data:
+    name: cortexa_ollama_data

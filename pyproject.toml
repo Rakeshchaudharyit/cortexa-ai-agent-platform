@@ -1,0 +1,70 @@
+[project]
+name = "cortexa-ai-agent-platform"
+version = "0.0.0"
+description = "Cortexa AI Agent Platform — local-first enterprise AI agent monorepo (Phase 0 foundation)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+authors = [
+  { name = "Cortexa Maintainers" }
+]
+keywords = [
+  "ai-agents",
+  "fastapi",
+  "ollama",
+  "rag",
+  "local-first",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Framework :: FastAPI",
+  "Programming Language :: Python :: 3.12",
+  "Private :: Do Not Upload",
+]
+
+# Phase 0: dependency list is declarative only. Do not install until Phase 1+.
+dependencies = []
+
+[project.optional-dependencies]
+# Declared for planning; versions pinned when scaffolding begins.
+backend = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic",
+  "pydantic-settings",
+  "sqlalchemy",
+  "alembic",
+  "psycopg[binary]",
+  "redis",
+  "httpx",
+]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+  "mypy",
+]
+
+[build-system]
+requires = ["setuptools>=75.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = []

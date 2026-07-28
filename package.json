@@ -1,8 +1,8 @@
 {
   "name": "cortexa-ai-agent-platform",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Cortexa AI Agent Platform — monorepo root (Phase 0 foundation). Frontend application is scaffolded in Phase 2.",
+  "description": "Cortexa AI Agent Platform — monorepo root (Phase 1 application foundation).",
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"
@@ -11,10 +11,9 @@
     "frontend"
   ],
   "scripts": {
-    "phase0:validate": "echo \"Use make validate for Phase 0 checks\""
-  },
-  "devDependencies": {},
-  "dependencies": {},
-  "optionalDependencies": {},
-  "overrides": {}
+    "lint": "npm run lint --workspace=@cortexa/frontend",
+    "typecheck": "npm run typecheck --workspace=@cortexa/frontend",
+    "test": "npm run test:run --workspace=@cortexa/frontend",
+    "build": "npm run build --workspace=@cortexa/frontend"
+  }
 }

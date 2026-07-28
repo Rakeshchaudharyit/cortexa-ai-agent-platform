@@ -1,6 +1,6 @@
 # Security
 
-Cortexa AI Agent Platform — security philosophy and controls (design contract for all phases).
+Cortexa AI Agent Platform — security philosophy and controls.
 
 Cortexa is **local-first**. Security prioritizes preventing accidental data exfiltration, unsafe tool execution, and secret leakage while remaining practical for single-operator and small-team local deployments.
 
@@ -8,21 +8,17 @@ Cortexa is **local-first**. Security prioritizes preventing accidental data exfi
 
 ## Local-First Execution
 
-- Default inference, embeddings, and speech run on local runtimes (Ollama and local engines).
-- Network egress for AI features is not required for the core happy path.
-- Any future non-local provider must be:
-  - Explicitly configured
-  - Isolated behind the provider layer
-  - Documented as an opt-in risk
+- Default inference, embeddings, and speech will run on local runtimes in later phases.
+- Phase 1 does not contact cloud AI APIs and does not download models automatically.
+- Phase 2 integrates Ollama locally only. Models are never auto-pulled.
 
 ---
 
 ## No Hidden Cloud APIs
 
 - Application code must not embed undeclared SaaS AI calls.
-- Dependency choices should prefer libraries that do not phone home by default.
-- CI and runtime configs must not silently inject third-party AI keys.
-- Documentation and UI must not imply cloud backends when the operator is in local mode.
+- Dependencies should prefer libraries that do not phone home by default.
+- Next.js telemetry is disabled in the frontend container (`NEXT_TELEMETRY_DISABLED=1`).
 
 ---
 
@@ -31,88 +27,40 @@ Cortexa is **local-first**. Security prioritizes preventing accidental data exfi
 | Practice | Requirement |
 | --- | --- |
 | Repository | No live secrets; `.env` is gitignored |
-| Templates | `.env.example` contains placeholders only |
-| Runtime | Secrets via environment or local secret files outside VCS |
-| Rotation | Operators can rotate DB/Redis/app secrets without code changes |
-| Scope | Least privilege per service container |
+| Templates | `.env.example` contains non-production placeholders only |
+| Runtime | Secrets via environment |
+| Logs | Do not log passwords, `Authorization`, cookies, or DB/Redis URLs |
+| Errors | Client responses must not include stack traces or internal exception strings |
 
-Never commit API keys, private certificates, model license keys, or dump files containing PII.
+Phase 1 local credentials:
 
----
-
-## Prompt Injection Mitigation
-
-Agents that read retrieved documents, memory, or tool outputs must treat that content as **untrusted**.
-
-Controls (introduced in relevant phases):
-
-- System instructions separated from user/tool/document content
-- Untrusted content clearly delimited in prompts
-- Tool allowlists independent of model suggestions
-- Refusal paths when retrieval asks the model to ignore policy
-- Logging of suspicious patterns where feasible without storing raw secrets
-
-Prompt injection cannot be solved perfectly; defense-in-depth and permission boundaries are mandatory.
+- `POSTGRES_PASSWORD=local_development_only` (template only — change for any shared host)
 
 ---
 
-## Tool Permissions
+## Phase 2 Security Posture
 
-- Tools are denied by default until registered and granted.
-- High-risk tools (filesystem write, network, subprocess) require explicit operator enablement.
-- Arguments are schema-validated before execution.
-- Execution is timed out and resource-limited.
-- Outcomes are audited.
+Implemented on top of Phase 1:
 
-The model proposes; the platform disposes.
+- Request size and output token limits for LLM APIs
+- Restricted message roles (`system` / `user` / `assistant`)
+- Structured LLM errors without upstream body leakage
+- Prompt/completion bodies are not logged by default
+- Shared outbound httpx client with explicit timeouts (no indefinite retries)
+- `/ready` remains independent of Ollama availability
 
----
+Still deferred:
 
-## Audit Logging
-
-Sensitive actions should emit structured audit events, including at minimum:
-
-- Timestamp (UTC)
-- Actor / session identifier
-- Action type
-- Resource identifiers (not raw secrets)
-- Outcome (success / deny / error class)
-
-Audit logs are local by default and retained per operator policy. They support incident review for tool misuse, auth failures, and configuration changes.
+- Authentication / session security
+- Rate limiting enforcement
+- Tool permission model
+- Prompt-injection mitigations beyond input size limits
 
 ---
 
-## Memory Privacy
+## Prompt Injection / Tools / Memory
 
-- Memory is scoped to the appropriate session/user boundary modeled by the application.
-- Retention and deletion APIs/policies are first-class (Phase 7+).
-- Memory contents are not used to train external models.
-- Exports, if offered, are explicit operator actions.
-
----
-
-## Upload Validation
-
-All uploads (documents, audio, images) must be validated before processing:
-
-- Size limits
-- MIME / content-type checks
-- Extension allowlists aligned with parsers
-- Malformed file rejection
-- Quarantine or discard on parser failure
-- No executable deployment from upload paths
-
----
-
-## Safe Execution
-
-| Area | Baseline expectation |
-| --- | --- |
-| Containers | Non-root where practical; read-only root FS considered in hardening phases |
-| Postgres / Redis | Strong local passwords in real `.env`; defaults only for empty local templates |
-| Admin surfaces | Not exposed to public internet without additional hardening |
-| Dependencies | Pin versions in implementing phases; review high-risk packages |
-| Errors | No stack traces or secrets in client-facing responses |
+Documented for later phases. Phase 2 enforces input size/role limits only.
 
 ---
 
@@ -120,20 +68,17 @@ All uploads (documents, audio, images) must be validated before processing:
 
 | Threat | Mitigation direction |
 | --- | --- |
-| Secret committed to git | `.gitignore`, reviews, secret scanning habits |
-| Model exfiltrates data via tools | Tool allowlists, argument validation, audits |
-| Malicious document injection | Upload validation + untrusted context handling |
-| Ollama / DB exposed broadly | Bind to localhost / Docker network; no public publish by default |
-| Supply chain | Lockfiles in later phases; minimal dependency surface |
+| Secret committed to git | `.gitignore`, reviews, `make secrets-check` |
+| Credential leakage in logs/errors | Structured logging + sanitized readiness/errors |
+| DB/Redis exposed broadly | Localhost bind + Docker network |
+| Accidental model downloads | No auto-pull on build/startup; explicit `ollama pull` only |
+| Prompt/completion leakage | LLM logs omit message bodies by default |
+| Supply chain | Pinned Compose image tags where practical |
 
 ---
 
-## Phase 0 Security Posture
+## Containers
 
-Phase 0 ships **policy and contracts only**:
-
-- Empty/placeholder env template
-- Compose without production secrets
-- Documentation of controls for later enforcement
-
-Absence of runtime enforcement in Phase 0 is intentional — not a claim that the running system is already hardened.
+- Backend runs as UID 10001 (`cortexa`)
+- Frontend runs as UID 10001 (`cortexa`)
+- Healthchecks use localhost inside containers

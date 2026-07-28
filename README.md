@@ -4,8 +4,9 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 0 — Architecture & Engineering Foundation  
-> Application features are intentionally not implemented yet.
+> **Current status:** Phase 2 — Local LLM Provider and Ollama Integration  
+> FastAPI, Next.js, PostgreSQL, Redis, and an Ollama LLM provider layer are runnable.  
+> Chat UI, RAG, memory, tools, voice, and authentication are **not** implemented.
 
 ---
 
@@ -21,200 +22,108 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 0 establishes repository layout, documentation, environment contracts, and Compose service planning only.
+Phase 2 delivers a provider-neutral LLM abstraction with Ollama status, non-streaming generation, and SSE streaming — without a product chat UI.
 
 ---
 
-## Objectives
+## What Phase 2 Implements
 
-1. Prove a production-quality foundation suitable for audited, phase-gated delivery.
-2. Enforce Clean Architecture, Dependency Injection, Repository Pattern, and Provider Pattern from day one.
-3. Keep all AI execution local — no hidden cloud API calls by default.
-4. Make every phase independently reviewable with clear acceptance criteria.
+| Capability | Status |
+| --- | --- |
+| Phase 1 foundation (health/ready/system UI) | Preserved |
+| Provider-neutral `LLMProvider` interface | Implemented |
+| Ollama provider (tags + chat + stream) | Implemented |
+| `GET /api/v1/llm/status` | Implemented |
+| `POST /api/v1/llm/generate` | Implemented |
+| `POST /api/v1/llm/stream` (SSE) | Implemented |
+| Controlled missing-model behavior | Implemented |
+| Minimal frontend LLM status panel | Implemented |
+| Mocked/fake provider tests | Implemented |
+
+## What Remains Unavailable
+
+| Capability | Status |
+| --- | --- |
+| Product chat UI / conversation history | Not implemented |
+| Authentication / users / orgs | Not implemented |
+| RAG / embeddings / vector search | Not implemented |
+| Memory / tools / voice | Not implemented |
+| Analytics / admin modules | Not implemented |
+| Automatic model downloads | Intentionally disabled |
+
+---
+
+## Quick Start (Docker)
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+
+# Health (default example ports 8000/3000; this workspace may remap to 18000/13000)
+curl -i http://localhost:18000/health
+curl -i http://localhost:18000/ready
+curl -i http://localhost:18000/api/v1/llm/status
+
+# Pull the default model only when you want generation to succeed
+docker compose exec ollama ollama pull qwen2.5:7b
+
+open http://localhost:13000
+```
+
+Stop:
+
+```bash
+docker compose down
+```
 
 ---
 
 ## Architecture Summary
 
 ```
-Frontend (Next.js)
-        ↓
-FastAPI API Layer
-        ↓
-Service Layer (business logic)
-        ↓
-Provider Layer (external integrations)
-        ↓
-Local AI Runtime (Ollama) / Database / Vector Store / Memory / Speech
+Frontend (Next.js)  →  FastAPI API  →  Services  →  DB / Redis / LLM providers
 ```
 
-Routes never talk to Ollama or the database directly. Services own business rules. Providers own external systems. Repositories own persistence.
+Routes never open database, Redis, or Ollama connections directly. The LLM factory injects the configured provider.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and layer responsibilities.
-
----
-
-## Technology Stack
-
-| Layer | Technology | Version target |
-| --- | --- | --- |
-| Language (backend) | Python | 3.12 |
-| API framework | FastAPI | latest stable |
-| Language (frontend) | TypeScript | latest stable |
-| Runtime (frontend) | Node.js | 22 LTS |
-| UI framework | Next.js | latest stable |
-| Primary database | PostgreSQL | 17 |
-| Cache / queues | Redis | latest stable |
-| Local LLM runtime | Ollama | latest stable |
-| Orchestration | Docker Compose | v2 |
-| Repo shape | Monorepo | `backend/` + `frontend/` |
-
-Exact pinned package versions are introduced when application scaffolding begins (Phase 1+). Phase 0 only declares placeholders.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ---
 
-## Planned Capabilities
+## Endpoint Semantics
 
-| Capability | Status |
-| --- | --- |
-| FastAPI backend | Planned |
-| Next.js enterprise dashboard | Planned |
-| Ollama + Qwen / Llama models | Planned |
-| Local embeddings | Planned |
-| RAG + vector database | Planned |
-| Memory system | Planned |
-| AI tool calling | Planned |
-| Speech-to-text / text-to-speech | Planned |
-| PostgreSQL + Redis | Planned |
-| Analytics | Planned |
-| Secure local Docker deployment | Planned |
-
-None of the above are implemented in Phase 0.
+| Endpoint | Purpose | Success | Notes |
+| --- | --- | --- | --- |
+| `GET /health` | Liveness | `200` | No dependency checks |
+| `GET /ready` | Infra readiness | `200` / `503` | Postgres + Redis only |
+| `GET /api/v1/system/info` | App info | `200` | `features.ollama=true` |
+| `GET /api/v1/llm/status` | LLM diagnostics | `200` | Missing model is not a crash |
+| `POST /api/v1/llm/generate` | Non-streaming | `200` | Requires pulled model |
+| `POST /api/v1/llm/stream` | SSE streaming | `200` | `text/event-stream` |
 
 ---
 
-## Development Phases
-
-| Phase | Focus |
-| --- | --- |
-| 0 | Architecture & engineering foundation *(current)* |
-| 1 | Backend application skeleton & configuration |
-| 2 | Frontend application skeleton |
-| 3 | Database models, migrations, repositories |
-| 4 | Ollama provider & model management |
-| 5 | Chat / agent core services |
-| 6 | Embeddings, vector store & RAG |
-| 7 | Memory system |
-| 8 | Tool calling framework |
-| 9 | Speech (STT / TTS) |
-| 10 | Enterprise dashboard & analytics |
-| 11 | Hardening, observability & security controls |
-| 12 | Packaging, release docs & demo readiness |
-
-Full detail: [docs/ROADMAP.md](docs/ROADMAP.md).
-
----
-
-## Local-First Philosophy
-
-- Default execution path stays on the developer machine or private LAN.
-- Model inference, embeddings, and speech processing target local runtimes.
-- Cloud providers are opt-in only through explicit provider implementations and configuration — never implied.
-- Sample data and secrets never leave the local environment unless the operator chooses otherwise.
-
----
-
-## Security Philosophy
-
-- No secrets in the repository; `.env.example` contains placeholders only.
-- Least-privilege tool permissions for agent actions.
-- Prompt-injection awareness at service and tool boundaries.
-- Audit logging for sensitive operations.
-- Upload validation and safe execution defaults.
-
-See [docs/SECURITY.md](docs/SECURITY.md).
-
----
-
-## Roadmap
-
-Phase-gated delivery with objective, deliverables, acceptance criteria, and exclusions per phase.  
-See [docs/ROADMAP.md](docs/ROADMAP.md).
-
----
-
-## Setup Prerequisites
-
-Install before later phases:
-
-- **Git** 2.40+
-- **Docker Desktop** (or Docker Engine + Compose v2)
-- **Python** 3.12
-- **Node.js** 22 LTS
-- **Make** (optional, for convenience targets)
-- Sufficient disk for local models (Ollama images vary; plan several GB)
-
-### Phase 0 (this phase)
-
-No dependency installation is required. Validate structure and Compose syntax only:
+## Validation
 
 ```bash
 make validate
 ```
 
-Or manually:
-
-```bash
-docker compose config
-python3 -m compileall backend
-```
+This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, frontend asset smoke, and LLM status probe.
 
 ---
 
-## Repository Layout
+## Documentation
 
-```
-cortexa-ai-agent-platform/
-├── backend/           # FastAPI application (scaffolded in later phases)
-├── frontend/          # Next.js application (scaffolded in later phases)
-├── docs/              # Architecture, roadmap, security, development standards
-├── scripts/           # Operational and validation scripts
-├── sample-data/       # Non-sensitive fixtures for later phases
-├── infrastructure/    # Docker, reverse-proxy, and observability assets
-├── docker-compose.yml # Planned local services
-├── Makefile           # Developer convenience targets
-├── pyproject.toml     # Backend / workspace Python metadata (placeholder)
-├── package.json       # Frontend monorepo root metadata (placeholder)
-└── .env.example       # Environment variable contract (no secrets)
-```
-
----
-
-## Engineering Rules (Non-Negotiable)
-
-- Clean Architecture + SOLID
-- Dependency Injection
-- Repository Pattern for persistence
-- Provider Pattern for every external integration
-- Strong typing (Python type hints, TypeScript strict)
-- Business logic only in Services
-- API routes do not call Ollama, databases, or other externals directly
-
-Coding standards: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
----
-
-## Documentation Index
-
-| Document | Purpose |
+| Doc | Contents |
 | --- | --- |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System layers and diagrams |
-| [ROADMAP.md](docs/ROADMAP.md) | Phased delivery plan |
-| [SECURITY.md](docs/SECURITY.md) | Security model |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Coding and contribution standards |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow, LLM curl examples, troubleshooting |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phased plan |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security posture |
 
 ---
 
 ## License
 
-Proprietary portfolio project — rights reserved by the author unless otherwise stated in a future `LICENSE` file.
+Proprietary — all rights reserved unless otherwise stated.

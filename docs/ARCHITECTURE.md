@@ -1,43 +1,37 @@
 # Architecture
 
-Cortexa AI Agent Platform — system architecture (Phase 0 design contract).
+Cortexa AI Agent Platform — system architecture.
 
-This document describes the **target** layered architecture. Runtime code that implements these layers is introduced in later phases. Phase 0 defines boundaries only.
+Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. RAG, memory, tools, voice, and authentication remain unimplemented.
 
 ---
 
 ## Design Principles
 
 1. **Clean Architecture** — dependencies point inward toward domain/services; frameworks sit at the edges.
-2. **Dependency Injection** — services receive repositories and providers through constructors / DI containers, not globals.
-3. **Repository Pattern** — persistence is abstracted; services never issue raw SQL or ORM calls.
-4. **Provider Pattern** — every external system (Ollama, vector DB, speech, object storage) is accessed through a provider interface.
+2. **Dependency Injection** — services receive infrastructure collaborators through construction / app state, not ad-hoc globals in routes.
+3. **Repository Pattern** — persistence is abstracted (domain repositories arrive with business tables in later phases).
+4. **Provider Pattern** — every external system is accessed through a provider module (Redis; Ollama via `app/llm`).
 5. **SOLID** — small, single-purpose modules with stable interfaces.
-6. **Strong typing** — Pydantic / TypedDict on the backend; TypeScript strict on the frontend.
+6. **Strong typing** — Pydantic v2 on the backend; TypeScript strict on the frontend.
 
 ---
 
-## Logical Stack
+## Phase 2 Runtime Stack
 
 ```
-Frontend
-    ↓
-FastAPI
-    ↓
-Service Layer
-    ↓
-Provider Layer
-    ↓
-Local AI Runtime
-    ↓
-Database
-    ↓
-Vector Store
-    ↓
-Memory
-    ↓
-Speech
+Frontend (Next.js system + LLM status)
+        ↓  HTTP (NEXT_PUBLIC_API_BASE_URL)
+FastAPI API routes
+        ↓
+Health / system / LLM services
+        ↓
+db/ + providers/redis + llm/providers/ollama
+        ↓
+PostgreSQL 17  |  Redis 7.4  |  Ollama
 ```
+
+Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host port `11435` is for optional host tooling only and is never hardcoded in application logic.
 
 ---
 
@@ -45,230 +39,100 @@ Speech
 
 | Layer | Responsibility | May call | Must not call |
 | --- | --- | --- | --- |
-| **Frontend** | UI, client state, API consumption | Backend HTTP/SSE APIs | Ollama, DB, Redis, filesystem secrets |
-| **FastAPI (API)** | HTTP concerns, auth middleware, request validation, response mapping | Services | Providers, repositories, ORM, Ollama |
-| **Service Layer** | Business rules, orchestration, transaction boundaries | Repositories, Providers, other services | Framework request objects, raw DB sessions outside UoW |
-| **Provider Layer** | Adapt external APIs/SDKs to internal interfaces | Ollama, vector engines, STT/TTS, Redis clients | HTTP route handlers, UI |
-| **Repositories** | CRUD / query mapping to persistence models | Database / ORM | Providers, HTTP |
-| **Local AI Runtime** | Model inference via Ollama | Host GPU/CPU models | Application DB schema |
-| **Database** | Relational state (users, sessions, audits, config) | — | — |
-| **Vector Store** | Embedding indices for RAG | — | — |
-| **Memory** | Short- and long-term conversational / agent memory | DB and/or vector store via services | Direct frontend access |
-| **Speech** | STT / TTS pipelines | Local speech engines via providers | Cloud by default |
+| **Frontend** | System + LLM status UI | Backend HTTP APIs | Ollama, DB, Redis |
+| **FastAPI (API)** | HTTP, CORS, validation, SSE | Services | DB engines, Redis, Ollama HTTP |
+| **Service Layer** | Orchestration + request limits | Providers / LLM interface | Framework request objects for infra |
+| **LLM providers** | Ollama transport + normalization | Ollama HTTP | Route handlers |
+| **Provider Layer** | Redis / shared HTTP client | Redis / httpx | HTTP route handlers |
+| **db/** | Async engine, sessions, `SELECT 1` | PostgreSQL | Providers, HTTP |
 
 ---
 
-## Monorepo Topology
+## Backend Package Layout (Phase 2)
 
 ```text
-cortexa-ai-agent-platform/
-├── frontend/          # Next.js (App Router), TypeScript
-├── backend/           # FastAPI, Python 3.12
-│   ├── api/           # Route handlers / routers only
-│   ├── core/          # Config, DI, logging, shared primitives
-│   ├── db/            # Engine, session, migrations wiring
-│   ├── models/        # ORM / persistence models
-│   ├── schemas/       # Pydantic request/response schemas
-│   ├── services/      # Business logic
-│   ├── repositories/  # Data access
-│   ├── providers/     # External integrations
-│   ├── workers/       # Async / background jobs
-│   └── tests/
-├── infrastructure/    # Compose extras, proxy, observability
-├── scripts/           # Ops / validation
-└── sample-data/       # Non-secret fixtures
+backend/
+├── app/
+│   ├── api/routes/     # health, system, llm
+│   ├── core/           # config, exceptions, logging, lifespan
+│   ├── db/             # base, session, health
+│   ├── llm/            # provider protocol, factory, Ollama
+│   ├── providers/      # redis, shared httpx client
+│   ├── schemas/        # Pydantic DTOs
+│   ├── services/       # health + llm services
+│   └── main.py
+├── alembic/
+└── tests/              # includes tests/fakes for deterministic LLM fakes
 ```
 
 ---
 
-## Primary Runtime Diagram
-
-```mermaid
-flowchart TB
-    subgraph Client["Frontend — Next.js"]
-        UI[Enterprise Dashboard]
-        Hooks[Client Hooks / Stores]
-    end
-
-    subgraph API["API Layer — FastAPI"]
-        Routes[API Routers]
-        MW[Auth / Validation / Middleware]
-    end
-
-    subgraph Domain["Application Core"]
-        Services[Service Layer]
-        Repos[Repositories]
-        Schemas[Schemas]
-    end
-
-    subgraph Providers["Provider Layer"]
-        LLM[LLM Provider]
-        Emb[Embeddings Provider]
-        Vec[Vector Store Provider]
-        Mem[Memory Provider]
-        Speech[Speech Provider]
-        Cache[Cache / Queue Provider]
-    end
-
-    subgraph Runtime["Local Runtime & Data"]
-        Ollama[Ollama — Qwen / Llama]
-        PG[(PostgreSQL 17)]
-        Redis[(Redis)]
-        VDB[(Vector Store)]
-        STT[Local STT]
-        TTS[Local TTS]
-    end
-
-    UI --> Hooks
-    Hooks -->|HTTPS / SSE| Routes
-    Routes --> MW
-    MW --> Services
-    Services --> Repos
-    Services --> Providers
-    Schemas -.-> Routes
-    Schemas -.-> Services
-    Repos --> PG
-    LLM --> Ollama
-    Emb --> Ollama
-    Vec --> VDB
-    Mem --> PG
-    Mem --> VDB
-    Speech --> STT
-    Speech --> TTS
-    Cache --> Redis
-```
-
----
-
-## Request Flow (Chat / Agent — Target)
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant FE as Next.js Frontend
-    participant API as FastAPI Router
-    participant Svc as Agent Service
-    participant Repo as Repository
-    participant LLM as LLM Provider
-    participant Ollama as Ollama Runtime
-    participant Mem as Memory Provider
-    participant RAG as Vector Provider
-
-    User->>FE: Submit prompt
-    FE->>API: POST /api/v1/...
-    API->>Svc: execute(command)
-    Svc->>Repo: load session / policy
-    Svc->>Mem: recall relevant memory
-    Svc->>RAG: retrieve context (optional)
-    Svc->>LLM: generate / tool-loop
-    LLM->>Ollama: chat / generate
-    Ollama-->>LLM: tokens
-    LLM-->>Svc: completion + tool calls
-    Svc->>Repo: persist turn / audit
-    Svc-->>API: result DTO
-    API-->>FE: JSON / SSE stream
-    FE-->>User: Render response
-```
-
----
-
-## Provider Boundary (Mandatory)
+## LLM Provider Abstraction
 
 ```mermaid
 flowchart LR
-    API[API Routes] -->|inject| Svc[Services]
-    Svc -->|interface| P[Provider Protocol]
-    P --> ImplA[OllamaLLMProvider]
-    P --> ImplB[FutureOptInCloudProvider]
-    ImplA --> Ollama[Local Ollama]
-    ImplB -.->|explicit config only| Cloud[External API]
+  API[api/routes/llm.py] --> Svc[services/llm.py]
+  Svc --> Proto[llm.base.LLMProvider]
+  Proto --> Factory[llm.factory]
+  Factory --> Ollama[llm.providers.ollama]
+  Ollama --> HTTP[providers.http AsyncClient]
+  HTTP --> Upstream[Ollama /api/tags /api/chat]
 ```
 
-**Rules**
-
-- API routes never import Ollama clients.
-- Services depend on protocols / abstract providers, not concrete SDKs.
-- Switching a model backend changes provider wiring, not route code.
+- Routes never construct `OllamaProvider` directly.
+- Factory resolves `LLM_PROVIDER` (Phase 2: `ollama` only).
+- Future OpenAI/Anthropic providers plug into the factory without rewriting API routes.
 
 ---
 
-## Data Plane
+## Readiness vs LLM Status
 
-```mermaid
-flowchart TB
-    subgraph Relational["PostgreSQL 17"]
-        Users[Identity / sessions]
-        Agents[Agent configs]
-        Audits[Audit logs]
-        Meta[Job / workflow metadata]
-    end
+| Endpoint | Purpose | Fails when |
+| --- | --- | --- |
+| `GET /health` | Process liveness | Process down |
+| `GET /ready` | Essential infra readiness | PostgreSQL or Redis unhealthy |
+| `GET /api/v1/llm/status` | AI provider/model diagnostics | Never fails readiness; reports provider/model state |
 
-    subgraph Ephemeral["Redis"]
-        Cache[Response / session cache]
-        Queue[Task queues]
-        Rate[Rate limits]
-    end
-
-    subgraph Vectors["Vector Store — planned"]
-        Chunks[Document chunks]
-        EmbIdx[Embedding index]
-    end
-
-    Services[Service Layer] --> Relational
-    Services --> Ephemeral
-    Services --> Vectors
-```
+Ollama being down or the model missing does **not** make `/ready` return 503.
 
 ---
 
-## Frontend Architecture (Target)
+## LLM API Surface
 
-```mermaid
-flowchart TB
-    App[app/ — routes & layouts]
-    Features[features/ — domain UI modules]
-    Components[components/ — shared presentational UI]
-    Hooks[hooks/]
-    Stores[stores/]
-    Services[services/ — API clients]
-    Lib[lib/ — utilities]
-    Types[types/]
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/llm/status` | Provider reachability + model availability |
+| `POST` | `/api/v1/llm/generate` | Non-streaming generation |
+| `POST` | `/api/v1/llm/stream` | SSE streaming generation |
 
-    App --> Features
-    Features --> Components
-    Features --> Hooks
-    Features --> Stores
-    Features --> Services
-    Services --> Types
-    Hooks --> Lib
-```
+### SSE event schema
 
-Frontend talks only to the Cortexa backend. It does not embed model credentials or call Ollama.
-
----
-
-## Infrastructure (Local Compose)
-
-Planned Compose services (Phase 0 definitions only):
-
-| Service | Role |
+| Event | Data |
 | --- | --- |
-| `frontend` | Next.js UI |
-| `backend` | FastAPI API |
-| `postgres` | Primary relational store |
-| `redis` | Cache / broker |
-| `ollama` | Local model runtime |
+| `start` | `{provider, model}` |
+| `delta` | `{content}` |
+| `complete` | `{provider, model, content, finish_reason?, usage?, latency_ms?}` |
+| `error` | `{code, message}` |
 
-Named volumes retain Postgres data, Redis data, and Ollama models across restarts.
+Raw Ollama payloads are never forwarded to clients.
 
 ---
 
-## Explicit Non-Goals (Phase 0)
+## Error Mapping
 
-- No runnable FastAPI or Next.js application code
-- No ORM models, migrations, or seed data with business meaning
-- No Ollama client implementation
-- No authentication implementation
-- No placeholder “fake agent” endpoints
+| Condition | HTTP | Code |
+| --- | --- | --- |
+| Invalid client request / limits | 422 | `validation_error` / `llm_input_too_large` / `llm_max_tokens_exceeded` |
+| Provider unreachable | 503 | `llm_provider_unavailable` |
+| Model missing | 424 | `llm_model_unavailable` |
+| Provider timeout | 504 | `llm_request_timeout` |
+| Invalid upstream response | 502 | `llm_invalid_response` |
+| Controlled generation failure | 502 | `llm_generation_error` |
 
-Architecture is the contract; later phases implement against it.
+All errors use the Phase 1 envelope: `{error:{code,message,details}, request_id}`.
+
+---
+
+## Frontend Architecture (Phase 2)
+
+The Phase 1 status page remains. Phase 2 adds a compact **Local LLM status** section that reads `/api/v1/llm/status` only. No chat composer, history, RAG, memory, tools, or voice controls.

@@ -254,7 +254,8 @@ Never set `OLLAMA_BASE_URL=http://localhost:11435` inside the backend container.
 | Archived conversation rejects send | By design | `POST .../unarchive` before messaging |
 | Generate → 504 | Provider timeout | Raise `OLLAMA_REQUEST_TIMEOUT_SECONDS` or reduce `max_tokens` |
 | Generate → 424 | Model missing | Pull model manually |
-| Docker bind mount denied | Docker Desktop file sharing | Move repo under an allowed path (for example `~/Projects`) |
+| Invalid email or password after register | Typo at registration (no confirmation before Phase 5.1); password whitespace mismatch; wrong API host | Use Show password + confirm field; passwords are not trimmed; see AUTHENTICATION.md troubleshooting |
+| Need a local password-reset link | Development delivery does not send email; link is in Redis | Request forgot-password, then `docker compose exec backend python -m app.cli.get_password_reset_link --email …` |
 
 ---
 

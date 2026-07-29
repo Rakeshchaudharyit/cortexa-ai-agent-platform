@@ -19,6 +19,7 @@ from app.documents.extraction import ExtractionService
 from app.main import create_app
 from app.models.enums import UserRole, UserStatus
 from app.models.user import User
+from app.notifications.password_reset import create_password_reset_delivery
 from app.providers.http import reset_http_client_state
 from app.providers.redis import reset_redis_state
 from app.schemas.health import DependencyCheck, ReadinessChecks, ReadinessResponse
@@ -30,6 +31,7 @@ from app.services.embeddings import EmbeddingService
 from app.services.health import HealthService
 from app.services.llm import LLMService
 from app.services.messages import MessageService
+from app.services.password_reset import PasswordResetService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 from app.storage.local import LocalFilesystemStorage
@@ -39,6 +41,7 @@ from sqlalchemy import text
 
 from tests.fakes.embeddings import FakeEmbeddingProvider
 from tests.fakes.llm import FakeLLMProvider
+from tests.fakes.redis import FakeRedis
 
 
 async def _fake_title_generator(user_content: str, _assistant_content: str) -> str:
@@ -101,6 +104,17 @@ def settings(
     monkeypatch.setenv("AUTH_COOKIE_PATH", "/api/v1/auth")
     monkeypatch.setenv("PASSWORD_MIN_LENGTH", "12")
     monkeypatch.setenv("PASSWORD_MAX_LENGTH", "128")
+    monkeypatch.setenv("PASSWORD_RESET_ENABLED", "true")
+    monkeypatch.setenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30")
+    monkeypatch.setenv("PASSWORD_RESET_TOKEN_BYTES", "32")
+    monkeypatch.setenv("PASSWORD_RESET_MAX_ACTIVE_TOKENS", "3")
+    monkeypatch.setenv("PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS", "0")
+    monkeypatch.setenv(
+        "PASSWORD_RESET_FRONTEND_URL",
+        "http://localhost:13000/reset-password",
+    )
+    monkeypatch.setenv("PASSWORD_RESET_DELIVERY_PROVIDER", "development")
+    monkeypatch.setenv("PASSWORD_RESET_DEV_EXPOSE_TOKEN", "false")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
@@ -225,16 +239,31 @@ def fake_embedding_provider(settings: Settings) -> FakeEmbeddingProvider:
 
 
 @pytest.fixture
+def fake_redis() -> FakeRedis:
+    """Shared FakeRedis for development password-reset delivery tests."""
+    return FakeRedis()
+
+
+@pytest.fixture
 def app(
     settings: Settings,
     fake_llm_provider: FakeLLMProvider,
     fake_embedding_provider: FakeEmbeddingProvider,
+    fake_redis: FakeRedis,
 ) -> FastAPI:
     """Application with stubbed health/LLM/embedding services (no live dependencies)."""
     application = create_app(settings)
     application.state.health_service = StubHealthService(settings)
     application.state.llm_service = LLMService(settings=settings, provider=fake_llm_provider)
     application.state.auth_service = AuthService.from_settings(settings)
+    application.state.redis = fake_redis
+    delivery = create_password_reset_delivery(settings, redis=fake_redis)
+    application.state.password_reset_delivery = delivery
+    application.state.password_reset_service = PasswordResetService.from_settings(
+        settings,
+        delivery=delivery,
+        redis=fake_redis,
+    )
     application.state.embedding_provider = fake_embedding_provider
     application.state.embedding_service = EmbeddingService(
         settings=settings,
@@ -292,6 +321,7 @@ async def db_session(db_engine: None) -> AsyncIterator[Any]:
         await session.execute(text("DELETE FROM conversations"))
         await session.execute(text("DELETE FROM document_chunks"))
         await session.execute(text("DELETE FROM documents"))
+        await session.execute(text("DELETE FROM password_reset_tokens"))
         await session.execute(text("DELETE FROM refresh_sessions"))
         await session.execute(text("DELETE FROM users"))
         await session.commit()
@@ -301,6 +331,7 @@ async def db_session(db_engine: None) -> AsyncIterator[Any]:
         await session.execute(text("DELETE FROM conversations"))
         await session.execute(text("DELETE FROM document_chunks"))
         await session.execute(text("DELETE FROM documents"))
+        await session.execute(text("DELETE FROM password_reset_tokens"))
         await session.execute(text("DELETE FROM refresh_sessions"))
         await session.execute(text("DELETE FROM users"))
         await session.commit()
@@ -311,12 +342,21 @@ def auth_app(
     settings: Settings,
     fake_llm_provider: FakeLLMProvider,
     fake_embedding_provider: FakeEmbeddingProvider,
+    fake_redis: FakeRedis,
 ) -> FastAPI:
     """App for auth API tests — real auth deps, no active-user override."""
     application = create_app(settings)
     application.state.health_service = StubHealthService(settings)
     application.state.llm_service = LLMService(settings=settings, provider=fake_llm_provider)
     application.state.auth_service = AuthService.from_settings(settings)
+    application.state.redis = fake_redis
+    delivery = create_password_reset_delivery(settings, redis=fake_redis)
+    application.state.password_reset_delivery = delivery
+    application.state.password_reset_service = PasswordResetService.from_settings(
+        settings,
+        delivery=delivery,
+        redis=fake_redis,
+    )
     application.state.embedding_provider = fake_embedding_provider
     application.state.embedding_service = EmbeddingService(
         settings=settings,
@@ -395,6 +435,15 @@ def _wire_rag_services(
 
     application.state.health_service = StubHealthService(settings)
     application.state.auth_service = AuthService.from_settings(settings)
+    fake_redis = FakeRedis()
+    application.state.redis = fake_redis
+    delivery = create_password_reset_delivery(settings, redis=fake_redis)
+    application.state.password_reset_delivery = delivery
+    application.state.password_reset_service = PasswordResetService.from_settings(
+        settings,
+        delivery=delivery,
+        redis=fake_redis,
+    )
     application.state.storage = storage
     application.state.extraction_service = extraction_service
     application.state.chunking_service = chunking_service

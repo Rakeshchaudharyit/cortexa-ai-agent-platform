@@ -75,12 +75,23 @@ export type AuthTokenResponse = {
 export type RegisterRequest = {
   email: string;
   password: string;
+  confirm_password: string;
   full_name: string;
 };
 
 export type LoginRequest = {
   email: string;
   password: string;
+};
+
+export type ForgotPasswordRequest = {
+  email: string;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  new_password: string;
+  confirm_password: string;
 };
 
 export type MessageResponse = {

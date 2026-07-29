@@ -61,6 +61,8 @@ Still deferred:
 Implemented on top of Phase 1–3:
 
 - Argon2id password hashing; passwords never logged or returned
+- Password reset tokens stored as SHA-256 hashes only; single-use; expiring; refresh sessions revoked on reset
+- Forgot-password responses are enumeration-safe (same message for known/unknown emails)
 - Short-lived JWT access tokens (`type=access`, explicit algorithm allow-list)
 - Opaque refresh tokens stored only as SHA-256 hashes
 - Refresh rotation + family revocation on reuse
@@ -77,7 +79,8 @@ Implemented on top of Phase 1–3:
 Still deferred:
 
 - Production rate-limit enforcement (login/register/refresh/upload must be limited in production)
-- Email verification / password-reset delivery
+- Email verification / production password-reset SMTP delivery
+- Social login / OAuth providers
 - Admin tooling and org/tenant isolation
 - Tool permission model
 - Advanced prompt-injection mitigations beyond grounded prompts + size limits

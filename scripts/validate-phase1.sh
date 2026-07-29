@@ -117,7 +117,7 @@ REGISTER_EMAIL="validate-$(date +%s)@example.com"
 curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
   -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"${REGISTER_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"full_name\":\"Validate User\"}" \
+  -d "{\"email\":\"${REGISTER_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"confirm_password\":\"StrongDemoPassword123!\",\"full_name\":\"Validate User\"}" \
   >/tmp/cortexa-auth-register.json
 ACCESS_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-auth-register.json"))["access_token"])')"
 curl -fsS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
@@ -153,7 +153,7 @@ CONV_EMAIL="validate-conv-$(date +%s)@example.com"
 curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
   -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"${CONV_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"full_name\":\"Conv User\"}" \
+  -d "{\"email\":\"${CONV_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"confirm_password\":\"StrongDemoPassword123!\",\"full_name\":\"Conv User\"}" \
   >/tmp/cortexa-conv-register.json
 CONV_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-conv-register.json"))["access_token"])')"
 CONV_LIST="$(curl -fsS -H "Authorization: Bearer ${CONV_TOKEN}" \

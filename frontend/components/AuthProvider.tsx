@@ -79,17 +79,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     const result = await loginUser(body);
     if (!result.ok) {
-      const message =
-        result.status === 401
-          ? "Invalid email or password"
-          : result.error || "Login failed";
+      let message = result.error || "Login failed";
+      if (result.status === null) {
+        message = "Unable to connect to the server";
+      } else if (result.status === 401) {
+        message = "Invalid email or password";
+      } else if (result.status === 403) {
+        message = result.error || "This account has been disabled";
+      } else if (result.status >= 500) {
+        message = "Something went wrong on the server. Please try again.";
+      }
       setError(message);
       setStatus("unauthenticated");
       setUser(null);
       return { ok: false as const, error: message };
     }
+    // Successful password login must not be overwritten by a later refresh failure.
     setUser(result.data.user);
     setStatus("authenticated");
+    setError(null);
     return { ok: true as const };
   }, []);
 

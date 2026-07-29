@@ -93,7 +93,8 @@ Implement production-quality authentication and user foundation with JWT access 
 - RAG / document ingestion
 - Conversation memory / agent tools / voice
 - Organization or tenant management
-- Social login / password-reset email delivery
+- Social login / production password-reset email delivery
+- Phase 5.1 adds in-app forgot/reset + development delivery CLI (not SMTP)
 - Admin dashboard / chat UI / API keys
 
 ---

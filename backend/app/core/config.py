@@ -104,6 +104,53 @@ class Settings(BaseSettings):
     password_min_length: int = Field(default=12, ge=8, le=128, alias="PASSWORD_MIN_LENGTH")
     password_max_length: int = Field(default=128, ge=32, le=1024, alias="PASSWORD_MAX_LENGTH")
 
+    # Password reset (Phase 5.1)
+    password_reset_enabled: bool = Field(default=True, alias="PASSWORD_RESET_ENABLED")
+    password_reset_token_expire_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+        alias="PASSWORD_RESET_TOKEN_EXPIRE_MINUTES",
+    )
+    password_reset_token_bytes: int = Field(
+        default=32,
+        ge=16,
+        le=64,
+        alias="PASSWORD_RESET_TOKEN_BYTES",
+    )
+    password_reset_max_active_tokens: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        alias="PASSWORD_RESET_MAX_ACTIVE_TOKENS",
+    )
+    password_reset_request_cooldown_seconds: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        alias="PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS",
+    )
+    password_reset_frontend_url: str = Field(
+        default="http://localhost:13000/reset-password",
+        alias="PASSWORD_RESET_FRONTEND_URL",
+    )
+    password_reset_delivery_provider: Literal["development"] = Field(
+        default="development",
+        alias="PASSWORD_RESET_DELIVERY_PROVIDER",
+    )
+    password_reset_dev_expose_token: bool = Field(
+        default=False,
+        alias="PASSWORD_RESET_DEV_EXPOSE_TOKEN",
+    )
+    password_reset_ip_hash_secret: str | None = Field(
+        default=None,
+        alias="PASSWORD_RESET_IP_HASH_SECRET",
+    )
+    password_reset_user_agent_hash_secret: str | None = Field(
+        default=None,
+        alias="PASSWORD_RESET_USER_AGENT_HASH_SECRET",
+    )
+
     # LLM provider (Phase 2 — Ollama)
     llm_provider: Literal["ollama"] = Field(default="ollama", alias="LLM_PROVIDER")
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
@@ -483,6 +530,36 @@ class Settings(BaseSettings):
             raise ValueError("FRONTEND_ORIGIN must start with http:// or https://")
         return origin
 
+    @field_validator("password_reset_frontend_url")
+    @classmethod
+    def normalize_password_reset_frontend_url(cls, value: str) -> str:
+        url = value.strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("PASSWORD_RESET_FRONTEND_URL must start with http:// or https://")
+        return url.rstrip("?")
+
+    @field_validator("password_reset_delivery_provider", mode="before")
+    @classmethod
+    def normalize_password_reset_delivery_provider(cls, value: object) -> str:
+        if value is None or value == "":
+            return "development"
+        provider = str(value).strip().lower()
+        if provider != "development":
+            raise ValueError("PASSWORD_RESET_DELIVERY_PROVIDER must be 'development' in Phase 5.1")
+        return provider
+
+    @field_validator(
+        "password_reset_ip_hash_secret",
+        "password_reset_user_agent_hash_secret",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_reset_secrets(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
     @model_validator(mode="after")
     def build_connection_urls(self) -> Settings:
         if not self.database_url:
@@ -518,6 +595,8 @@ class Settings(BaseSettings):
                 )
             if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
                 raise ValueError("AUTH_COOKIE_SECURE must be true when SameSite=None")
+            if self.password_reset_dev_expose_token:
+                raise ValueError("PASSWORD_RESET_DEV_EXPOSE_TOKEN must be false in production")
         # Ensure frontend origin is always an allowed CORS origin.
         if self.frontend_origin not in self.cors_allowed_origins:
             self.cors_allowed_origins = [*self.cors_allowed_origins, self.frontend_origin]
@@ -549,6 +628,11 @@ class Settings(BaseSettings):
             "auth_cookie_path": self.auth_cookie_path,
             "password_min_length": self.password_min_length,
             "password_max_length": self.password_max_length,
+            "password_reset_enabled": self.password_reset_enabled,
+            "password_reset_token_expire_minutes": self.password_reset_token_expire_minutes,
+            "password_reset_max_active_tokens": self.password_reset_max_active_tokens,
+            "password_reset_request_cooldown_seconds": self.password_reset_request_cooldown_seconds,
+            "password_reset_delivery_provider": self.password_reset_delivery_provider,
             "llm_provider": self.llm_provider,
             "ollama_model": self.ollama_model,
             "llm_max_input_characters": self.llm_max_input_characters,

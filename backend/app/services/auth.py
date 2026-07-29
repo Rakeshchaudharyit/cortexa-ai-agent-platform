@@ -239,6 +239,7 @@ class AuthService:
         session: AsyncSession,
         *,
         user_id: uuid.UUID,
+        commit: bool = True,
     ) -> int:
         """Revoke every active refresh session for a user (service-layer only)."""
         now = datetime.now(UTC)
@@ -250,7 +251,8 @@ class AuthService:
             )
             .values(revoked_at=now)
         )
-        await session.commit()
+        if commit:
+            await session.commit()
         return int(getattr(result, "rowcount", 0) or 0)
 
     async def get_user_by_id(self, session: AsyncSession, user_id: uuid.UUID) -> User | None:

@@ -16,6 +16,7 @@ from app.models.enums import UserRole, UserStatus
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
     from app.models.document import Document
+    from app.models.password_reset import PasswordResetToken
     from app.models.refresh_session import RefreshSession
 
 
@@ -76,6 +77,11 @@ class User(Base):
 
     refresh_sessions: Mapped[list[RefreshSession]] = relationship(
         "RefreshSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    password_reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
+        "PasswordResetToken",
         back_populates="user",
         cascade="all, delete-orphan",
     )

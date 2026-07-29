@@ -22,6 +22,7 @@ async def _register(
         json={
             "email": email,
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": full_name,
         },
     )

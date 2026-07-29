@@ -21,6 +21,7 @@ from app.services.conversations import ConversationService
 from app.services.documents import DocumentService
 from app.services.embeddings import EmbeddingService
 from app.services.messages import MessageService
+from app.services.password_reset import PasswordResetService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 
@@ -43,6 +44,17 @@ def get_auth_service(request: Request) -> AuthService:
     settings = get_settings_dep(request)
     created = AuthService.from_settings(settings)
     request.app.state.auth_service = created
+    return created
+
+
+def get_password_reset_service(request: Request) -> PasswordResetService:
+    service = getattr(request.app.state, "password_reset_service", None)
+    if isinstance(service, PasswordResetService):
+        return service
+    settings = get_settings_dep(request)
+    redis = getattr(request.app.state, "redis", None)
+    created = PasswordResetService.from_settings(settings, redis=redis)
+    request.app.state.password_reset_service = created
     return created
 
 
@@ -144,6 +156,7 @@ def require_role(*roles: UserRole) -> Callable[..., Any]:
 
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+PasswordResetServiceDep = Annotated[PasswordResetService, Depends(get_password_reset_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]

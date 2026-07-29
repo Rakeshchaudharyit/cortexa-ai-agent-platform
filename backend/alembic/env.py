@@ -14,6 +14,7 @@ from app.models import (  # noqa: F401
     DocumentChunk,
     Message,
     MessageCitation,
+    PasswordResetToken,
     RefreshSession,
     User,
 )

@@ -15,6 +15,7 @@ from app.models.enums import (
     UserRole,
     UserStatus,
 )
+from app.models.password_reset import PasswordResetToken
 from app.models.refresh_session import RefreshSession
 from app.models.user import User
 
@@ -29,6 +30,7 @@ __all__ = [
     "MessageCitation",
     "MessageRole",
     "MessageStatus",
+    "PasswordResetToken",
     "RefreshSession",
     "User",
     "UserRole",

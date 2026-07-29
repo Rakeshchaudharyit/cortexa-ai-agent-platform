@@ -11,14 +11,17 @@ from app.api.deps import (
     AuthServiceDep,
     CurrentActiveUser,
     DbSessionDep,
+    PasswordResetServiceDep,
     SettingsDep,
 )
 from app.core.config import Settings
 from app.schemas.auth import (
     AuthTokenResponse,
+    ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
     RegisterRequest,
+    ResetPasswordRequest,
     UserPublic,
 )
 
@@ -185,3 +188,42 @@ async def logout(
 )
 async def me(user: CurrentActiveUser) -> UserPublic:
     return UserPublic.model_validate(user)
+
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="Request a password reset (enumeration-safe)",
+)
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    session: DbSessionDep,
+    password_reset_service: PasswordResetServiceDep,
+) -> MessageResponse:
+    message = await password_reset_service.forgot_password(
+        session,
+        email=str(body.email),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=_client_ip(request),
+    )
+    return MessageResponse(message=message)
+
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    summary="Reset password using a single-use reset token",
+)
+async def reset_password(
+    body: ResetPasswordRequest,
+    session: DbSessionDep,
+    password_reset_service: PasswordResetServiceDep,
+) -> MessageResponse:
+    message = await password_reset_service.reset_password(
+        session,
+        raw_token=body.token,
+        new_password=body.new_password,
+        confirm_password=body.confirm_password,
+    )
+    return MessageResponse(message=message)

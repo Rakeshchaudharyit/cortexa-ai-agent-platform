@@ -4,9 +4,9 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 5 — Persistent Conversations & Multi-Turn RAG Chat
+> **Current status:** Phase 5.1 — Authentication repair (password reset) + Phase 5 conversations
 >
-> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication, document ingestion, grounded Q&A, and the `/chat` conversation UI are runnable.
+> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication with password reset, document ingestion, grounded Q&A, and the `/chat` conversation UI are runnable.
 >
 > Cross-conversation memory, agent tools, voice, and organization/tenant management are **not** implemented.
 
@@ -47,7 +47,7 @@ Phase 4 adds private document upload, local embeddings, pgvector retrieval, and 
 | --- | --- |
 | Cross-conversation / profile memory | Not implemented |
 | Organization / tenant management | Not implemented |
-| Social login / password-reset email | Not implemented |
+| Social login / production password-reset email | Not implemented (dev reset CLI + in-app reset exist) |
 | Agent tools / voice | Not implemented |
 | Analytics / admin modules | Not implemented |
 | Automatic model downloads | Intentionally disabled |
@@ -119,7 +119,15 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/
 | `POST /api/v1/conversations/{id}/messages/stream` | Streaming chat (SSE) | `200` | **Requires auth** |
 | `GET /api/v1/usage/summary` | Usage aggregates | `200` | **Requires auth** |
 
-Authentication details and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+Authentication details, password reset, and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+
+Development password-reset link (no real email):
+
+```bash
+docker compose exec backend \
+  python -m app.cli.get_password_reset_link \
+  --email user@example.com
+```
 Conversations, streaming, and RAG-in-chat: [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md).
 Documents and one-shot RAG: [docs/RAG.md](docs/RAG.md).
 

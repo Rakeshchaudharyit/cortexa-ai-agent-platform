@@ -25,6 +25,7 @@ async def _register(client: AsyncClient, *, email: str) -> str:
         json={
             "email": email,
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Chat User",
         },
     )

@@ -63,6 +63,22 @@ export async function logoutUser(): Promise<
   return result;
 }
 
+export async function requestPasswordReset(
+  body: { email: string },
+): Promise<{ ok: true; data: MessageResponse } | { ok: false; error: string; status: number | null }> {
+  return apiPost<MessageResponse>("/api/v1/auth/forgot-password", {
+    json: body,
+  });
+}
+
+export async function resetPassword(
+  body: { token: string; new_password: string; confirm_password: string },
+): Promise<{ ok: true; data: MessageResponse } | { ok: false; error: string; status: number | null }> {
+  return apiPost<MessageResponse>("/api/v1/auth/reset-password", {
+    json: body,
+  });
+}
+
 export async function fetchCurrentUser(): Promise<
   { ok: true; data: UserPublic } | { ok: false; error: string; status: number | null }
 > {

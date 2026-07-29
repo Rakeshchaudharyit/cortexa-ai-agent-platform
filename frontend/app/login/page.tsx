@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { PasswordField } from "@/components/PasswordField";
 
 const MIN_PASSWORD = 12;
 
@@ -34,6 +35,7 @@ export default function LoginPage() {
     }
 
     setPending(true);
+    // Email may be trimmed/normalized; password is sent exactly as entered.
     const result = await login({ email: email.trim(), password });
     setPending(false);
     if (result.ok) {
@@ -49,7 +51,7 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col gap-8 px-6 py-12 sm:px-10">
       <header className="flex flex-col gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/90">
-          Phase 3 — Authentication
+          Authentication
         </p>
         <h1 className="text-3xl font-semibold tracking-tight text-slate-50">Log in</h1>
         <p className="text-sm leading-relaxed text-slate-400">
@@ -80,23 +82,16 @@ export default function LoginPage() {
           />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <label htmlFor="password" className="text-sm font-medium text-slate-200">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            minLength={MIN_PASSWORD}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2 text-slate-100 outline-none ring-cyan-400/0 transition focus:ring-2 focus:ring-cyan-400/40"
-            data-testid="login-password"
-          />
-        </div>
+        <PasswordField
+          id="password"
+          name="password"
+          label="Password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="current-password"
+          minLength={MIN_PASSWORD}
+          testId="login-password"
+        />
 
         {displayError ? (
           <p
@@ -117,6 +112,12 @@ export default function LoginPage() {
           {pending ? "Signing in…" : "Sign in"}
         </button>
       </form>
+
+      <p className="text-sm text-slate-400">
+        <Link href="/forgot-password" className="text-cyan-300 hover:text-cyan-200" data-testid="forgot-password-link">
+          Forgot password?
+        </Link>
+      </p>
 
       <p className="text-sm text-slate-400">
         Need an account?{" "}

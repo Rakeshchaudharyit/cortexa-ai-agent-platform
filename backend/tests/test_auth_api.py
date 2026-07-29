@@ -26,6 +26,7 @@ async def test_register_success(auth_client: AsyncClient, settings: Settings) ->
         json={
             "email": "demo@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Demo User",
         },
     )
@@ -50,6 +51,7 @@ async def test_register_duplicate_email(auth_client: AsyncClient) -> None:
     body = {
         "email": "dup-api@example.com",
         "password": STRONG_PASSWORD,
+        "confirm_password": STRONG_PASSWORD,
         "full_name": "Dup",
     }
     first = await auth_client.post("/api/v1/auth/register", json=body)
@@ -67,7 +69,12 @@ async def test_register_duplicate_email(auth_client: AsyncClient) -> None:
 async def test_register_invalid_email(auth_client: AsyncClient) -> None:
     response = await auth_client.post(
         "/api/v1/auth/register",
-        json={"email": "not-an-email", "password": STRONG_PASSWORD, "full_name": "X"},
+        json={
+            "email": "not-an-email",
+            "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
+            "full_name": "X",
+        },
     )
     assert response.status_code == 422
 
@@ -76,7 +83,12 @@ async def test_register_invalid_email(auth_client: AsyncClient) -> None:
 async def test_register_weak_password(auth_client: AsyncClient) -> None:
     response = await auth_client.post(
         "/api/v1/auth/register",
-        json={"email": "weak@example.com", "password": "short", "full_name": "Weak"},
+        json={
+            "email": "weak@example.com",
+            "password": "short",
+            "confirm_password": "short",
+            "full_name": "Weak",
+        },
     )
     assert response.status_code == 422
 
@@ -94,6 +106,7 @@ async def test_login_success_and_me(auth_client: AsyncClient, settings: Settings
         json={
             "email": "login-api@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Login API",
         },
     )
@@ -124,6 +137,7 @@ async def test_login_unknown_and_wrong_password_generic(auth_client: AsyncClient
         json={
             "email": "generic@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Generic",
         },
     )
@@ -151,6 +165,7 @@ async def test_login_disabled_account(
         json={
             "email": "disabled-api@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Disabled API",
         },
     )
@@ -180,6 +195,7 @@ async def test_refresh_rotation_sets_new_cookie(
         json={
             "email": "refresh-api@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Refresh API",
         },
     )
@@ -228,6 +244,7 @@ async def test_logout_revokes_and_clears_cookie(
         json={
             "email": "logout-api@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Logout API",
         },
     )
@@ -314,6 +331,7 @@ async def test_disabled_user_rejected_with_valid_access_token(
         json={
             "email": "disabled-token@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Disabled Token",
         },
     )
@@ -343,6 +361,7 @@ async def test_cookie_secure_flag_configurable(
         json={
             "email": "cookie-secure@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Cookie Secure",
         },
     )
@@ -405,6 +424,7 @@ async def test_llm_with_auth_reaches_provider(auth_client: AsyncClient) -> None:
         json={
             "email": "llm-auth@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "LLM Auth",
         },
     )
@@ -439,6 +459,7 @@ async def test_raw_refresh_not_stored(
         json={
             "email": "hash-store@example.com",
             "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
             "full_name": "Hash Store",
         },
     )

@@ -16,6 +16,7 @@ from app.documents.chunking import ChunkingConfig, ChunkingService
 from app.documents.extraction import ExtractionService
 from app.embeddings.factory import create_embedding_provider
 from app.llm.factory import create_llm_provider
+from app.notifications.password_reset import create_password_reset_delivery
 from app.providers.http import close_http_client, init_http_client
 from app.providers.redis import close_redis, init_redis
 from app.services.auth import AuthService
@@ -26,6 +27,7 @@ from app.services.embeddings import EmbeddingService
 from app.services.health import HealthService
 from app.services.llm import LLMService
 from app.services.messages import MessageService
+from app.services.password_reset import PasswordResetService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 from app.storage.local import LocalFilesystemStorage
@@ -52,6 +54,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     llm_provider = create_llm_provider(settings, http_client)
     llm_service = LLMService(settings=settings, provider=llm_provider)
     auth_service = AuthService.from_settings(settings)
+    password_reset_delivery = create_password_reset_delivery(settings, redis=redis)
+    password_reset_service = PasswordResetService.from_settings(
+        settings,
+        delivery=password_reset_delivery,
+        redis=redis,
+    )
 
     storage = LocalFilesystemStorage(root_path=settings.document_storage_path)
     embedding_provider = create_embedding_provider(settings, http_client)
@@ -105,6 +113,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm_provider = llm_provider
     app.state.llm_service = llm_service
     app.state.auth_service = auth_service
+    app.state.password_reset_delivery = password_reset_delivery
+    app.state.password_reset_service = password_reset_service
     app.state.storage = storage
     app.state.embedding_provider = embedding_provider
     app.state.extraction_service = extraction_service

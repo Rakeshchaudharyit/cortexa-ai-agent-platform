@@ -272,7 +272,7 @@ export function SystemStatusPanel() {
         <div>
           <h2 className="text-lg font-semibold text-slate-100">Planned capabilities</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Chat UI, RAG, memory, tools, and voice remain unavailable in Phase 2.
+            Chat UI, RAG, memory, tools, and voice remain unavailable in Phase 3.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -282,9 +282,10 @@ export function SystemStatusPanel() {
         </div>
         {info ? (
           <p className="text-xs text-slate-500" data-testid="feature-flags">
-            API feature flags: ollama={String(info.features.ollama)}, rag=
-            {String(info.features.rag)}, memory={String(info.features.memory)}, tools=
-            {String(info.features.tools)}, voice={String(info.features.voice)}
+            API feature flags: ollama={String(info.features.ollama)}, auth=
+            {String(info.features.auth)}, rag={String(info.features.rag)}, memory=
+            {String(info.features.memory)}, tools={String(info.features.tools)}, voice=
+            {String(info.features.voice)}
           </p>
         ) : null}
       </section>

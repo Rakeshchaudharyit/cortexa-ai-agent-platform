@@ -14,6 +14,7 @@ from app.db.session import dispose_engine, init_engine
 from app.llm.factory import create_llm_provider
 from app.providers.http import close_http_client, init_http_client
 from app.providers.redis import close_redis, init_redis
+from app.services.auth import AuthService
 from app.services.health import HealthService
 from app.services.llm import LLMService
 
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     http_client = await init_http_client(settings)
     llm_provider = create_llm_provider(settings, http_client)
     llm_service = LLMService(settings=settings, provider=llm_provider)
+    auth_service = AuthService.from_settings(settings)
 
     app.state.settings = settings
     app.state.engine = engine
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.http_client = http_client
     app.state.llm_provider = llm_provider
     app.state.llm_service = llm_service
+    app.state.auth_service = auth_service
     app.state.health_service = HealthService(
         settings=settings,
         engine=engine,

@@ -70,6 +70,7 @@ function stubBackend(handlers: {
           api_version: "v1",
           features: {
             ollama: true,
+            auth: true,
             rag: false,
             memory: false,
             tools: false,
@@ -93,6 +94,7 @@ describe("SystemStatusPanel", () => {
     });
 
     expect(screen.getByTestId("feature-flags")).toHaveTextContent("ollama=true");
+    expect(screen.getByTestId("feature-flags")).toHaveTextContent("auth=true");
     expect(screen.getByTestId("llm-status-section")).toBeTruthy();
     expect(screen.getByTestId("status-configured-model")).toHaveTextContent("qwen2.5:7b");
     expect(screen.getByTestId("status-model-available")).toHaveTextContent("Not pulled yet");

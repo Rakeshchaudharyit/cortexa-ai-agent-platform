@@ -26,12 +26,12 @@ export function CapabilityCard({ title, description }: CapabilityCardProps) {
 export const PLANNED_CAPABILITIES: CapabilityCardProps[] = [
   {
     title: "AI Agent",
-    description: "Conversational agents with session continuity — not available in Phase 2.",
+    description: "Conversational agents with session continuity — not available in Phase 3.",
   },
   {
     title: "Chat Interface",
     description:
-      "Product chat UI is intentionally deferred. Phase 2 exposes provider status and APIs only.",
+      "Product chat UI is intentionally deferred. Phase 3 focuses on authentication and APIs.",
   },
   {
     title: "Knowledge and RAG",

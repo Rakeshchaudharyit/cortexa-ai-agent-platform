@@ -70,6 +70,7 @@ class HealthService:
             api_version=api_version,
             features=FeatureFlags(
                 ollama=True,
+                auth=True,
                 rag=False,
                 memory=False,
                 tools=False,

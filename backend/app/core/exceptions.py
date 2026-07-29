@@ -26,12 +26,14 @@ class AppError(Exception):
         message: str,
         status_code: int = status.HTTP_400_BAD_REQUEST,
         details: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.status_code = status_code
         self.details = details or []
+        self.headers = headers or {}
 
 
 def _resolve_request_id(request: Request) -> str:
@@ -72,6 +74,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request_id=request_id,
                 details=exc.details,
             ),
+            headers=exc.headers or None,
         )
 
     @app.exception_handler(StarletteHTTPException)

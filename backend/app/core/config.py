@@ -8,6 +8,16 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+_INSECURE_JWT_SECRETS = frozenset(
+    {
+        "",
+        "change_me",
+        "change_me_to_a_long_random_string",
+        "secret",
+        "changeme",
+    }
+)
+
 
 class Settings(BaseSettings):
     """Application configuration. Secrets are never logged by this module."""
@@ -51,9 +61,48 @@ class Settings(BaseSettings):
 
     # CORS — NoDecode keeps comma-separated env strings from being JSON-parsed first.
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://localhost:3000"],
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:13000",
+            "http://127.0.0.1:13000",
+        ],
         alias="CORS_ALLOWED_ORIGINS",
     )
+    frontend_origin: str = Field(
+        default="http://localhost:3000",
+        alias="FRONTEND_ORIGIN",
+    )
+
+    # Authentication (Phase 3)
+    jwt_secret_key: str = Field(
+        default="dev-only-cortexa-jwt-secret-replace-before-production-use-32b",
+        alias="JWT_SECRET_KEY",
+        min_length=32,
+    )
+    jwt_algorithm: Literal["HS256"] = Field(default="HS256", alias="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=1440,
+        alias="ACCESS_TOKEN_EXPIRE_MINUTES",
+    )
+    refresh_token_expire_days: int = Field(
+        default=14,
+        ge=1,
+        le=90,
+        alias="REFRESH_TOKEN_EXPIRE_DAYS",
+    )
+    auth_cookie_name: str = Field(default="cortexa_refresh", alias="AUTH_COOKIE_NAME")
+    auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        alias="AUTH_COOKIE_SAMESITE",
+    )
+    auth_cookie_domain: str | None = Field(default=None, alias="AUTH_COOKIE_DOMAIN")
+    auth_cookie_path: str = Field(default="/api/v1/auth", alias="AUTH_COOKIE_PATH")
+    password_min_length: int = Field(default=12, ge=8, le=128, alias="PASSWORD_MIN_LENGTH")
+    password_max_length: int = Field(default=128, ge=32, le=1024, alias="PASSWORD_MAX_LENGTH")
 
     # LLM provider (Phase 2 — Ollama)
     llm_provider: Literal["ollama"] = Field(default="ollama", alias="LLM_PROVIDER")
@@ -94,7 +143,12 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:
         if value is None or value == "":
-            return ["http://localhost:3000"]
+            return [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:13000",
+                "http://127.0.0.1:13000",
+            ]
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
         if isinstance(value, str):
@@ -142,6 +196,37 @@ class Settings(BaseSettings):
             raise ValueError("OLLAMA_MODEL cannot be blank")
         return model
 
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def normalize_jwt_secret(cls, value: str) -> str:
+        secret = value.strip()
+        if len(secret) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
+        return secret
+
+    @field_validator("auth_cookie_samesite", mode="before")
+    @classmethod
+    def normalize_samesite(cls, value: object) -> str:
+        if value is None or value == "":
+            return "lax"
+        return str(value).strip().lower()
+
+    @field_validator("auth_cookie_domain", mode="before")
+    @classmethod
+    def normalize_cookie_domain(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("frontend_origin")
+    @classmethod
+    def normalize_frontend_origin(cls, value: str) -> str:
+        origin = value.strip().rstrip("/")
+        if not origin.startswith(("http://", "https://")):
+            raise ValueError("FRONTEND_ORIGIN must start with http:// or https://")
+        return origin
+
     @model_validator(mode="after")
     def build_connection_urls(self) -> Settings:
         if not self.database_url:
@@ -151,6 +236,19 @@ class Settings(BaseSettings):
             )
         if not self.redis_url:
             self.redis_url = f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        if self.password_min_length > self.password_max_length:
+            raise ValueError("PASSWORD_MIN_LENGTH cannot exceed PASSWORD_MAX_LENGTH")
+        if self.is_production:
+            lowered = self.jwt_secret_key.lower()
+            if lowered in _INSECURE_JWT_SECRETS or "dev-only" in lowered or "replace" in lowered:
+                raise ValueError(
+                    "JWT_SECRET_KEY must be replaced with a strong secret in production"
+                )
+            if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+                raise ValueError("AUTH_COOKIE_SECURE must be true when SameSite=None")
+        # Ensure frontend origin is always an allowed CORS origin.
+        if self.frontend_origin not in self.cors_allowed_origins:
+            self.cors_allowed_origins = [*self.cors_allowed_origins, self.frontend_origin]
         return self
 
     @property
@@ -169,6 +267,16 @@ class Settings(BaseSettings):
             "backend_host": self.backend_host,
             "backend_port": self.backend_port,
             "cors_allowed_origins": self.cors_allowed_origins,
+            "frontend_origin": self.frontend_origin,
+            "jwt_algorithm": self.jwt_algorithm,
+            "access_token_expire_minutes": self.access_token_expire_minutes,
+            "refresh_token_expire_days": self.refresh_token_expire_days,
+            "auth_cookie_name": self.auth_cookie_name,
+            "auth_cookie_secure": self.auth_cookie_secure,
+            "auth_cookie_samesite": self.auth_cookie_samesite,
+            "auth_cookie_path": self.auth_cookie_path,
+            "password_min_length": self.password_min_length,
+            "password_max_length": self.password_max_length,
             "llm_provider": self.llm_provider,
             "ollama_model": self.ollama_model,
             "llm_max_input_characters": self.llm_max_input_characters,

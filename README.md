@@ -4,9 +4,9 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 2 — Local LLM Provider and Ollama Integration  
-> FastAPI, Next.js, PostgreSQL, Redis, and an Ollama LLM provider layer are runnable.  
-> Chat UI, RAG, memory, tools, voice, and authentication are **not** implemented.
+> **Current status:** Phase 3 — Authentication and User Foundation  
+> FastAPI, Next.js, PostgreSQL, Redis, Ollama LLM provider, and email/password authentication are runnable.  
+> Chat UI, RAG, memory, tools, voice, and organization/tenant management are **not** implemented.
 
 ---
 
@@ -22,30 +22,30 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 2 delivers a provider-neutral LLM abstraction with Ollama status, non-streaming generation, and SSE streaming — without a product chat UI.
+Phase 3 adds production-quality authentication (JWT access tokens + HttpOnly refresh cookies) while preserving Phase 1–2 infrastructure and LLM provider behavior.
 
 ---
 
-## What Phase 2 Implements
+## What Phase 3 Implements
 
 | Capability | Status |
 | --- | --- |
-| Phase 1 foundation (health/ready/system UI) | Preserved |
-| Provider-neutral `LLMProvider` interface | Implemented |
-| Ollama provider (tags + chat + stream) | Implemented |
-| `GET /api/v1/llm/status` | Implemented |
-| `POST /api/v1/llm/generate` | Implemented |
-| `POST /api/v1/llm/stream` (SSE) | Implemented |
-| Controlled missing-model behavior | Implemented |
-| Minimal frontend LLM status panel | Implemented |
-| Mocked/fake provider tests | Implemented |
+| Phase 1–2 foundation | Preserved |
+| User model + refresh sessions | Implemented |
+| Registration / login / logout / refresh / me | Implemented |
+| Argon2id passwords + JWT access tokens | Implemented |
+| Refresh-token rotation + reuse detection | Implemented |
+| Protected LLM generate/stream | Implemented |
+| Minimal `/login` and `/register` UI | Implemented |
+| Auth tests + docs | Implemented |
 
 ## What Remains Unavailable
 
 | Capability | Status |
 | --- | --- |
 | Product chat UI / conversation history | Not implemented |
-| Authentication / users / orgs | Not implemented |
+| Organization / tenant management | Not implemented |
+| Social login / password-reset email | Not implemented |
 | RAG / embeddings / vector search | Not implemented |
 | Memory / tools / voice | Not implemented |
 | Analytics / admin modules | Not implemented |
@@ -96,10 +96,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/
 | --- | --- | --- | --- |
 | `GET /health` | Liveness | `200` | No dependency checks |
 | `GET /ready` | Infra readiness | `200` / `503` | Postgres + Redis only |
-| `GET /api/v1/system/info` | App info | `200` | `features.ollama=true` |
-| `GET /api/v1/llm/status` | LLM diagnostics | `200` | Missing model is not a crash |
-| `POST /api/v1/llm/generate` | Non-streaming | `200` | Requires pulled model |
-| `POST /api/v1/llm/stream` | SSE streaming | `200` | `text/event-stream` |
+| `GET /api/v1/system/info` | App info | `200` | `features.auth=true` |
+| `POST /api/v1/auth/register` | Register | `201` | Sets HttpOnly refresh cookie |
+| `POST /api/v1/auth/login` | Login | `200` | Sets HttpOnly refresh cookie |
+| `POST /api/v1/auth/refresh` | Rotate refresh | `200` | Cookie required |
+| `POST /api/v1/auth/logout` | Logout | `200` | Idempotent |
+| `GET /api/v1/auth/me` | Current user | `200` | Bearer access token |
+| `GET /api/v1/llm/status` | LLM diagnostics | `200` | Public |
+| `POST /api/v1/llm/generate` | Non-streaming | `200` | **Requires auth** + pulled model |
+| `POST /api/v1/llm/stream` | SSE streaming | `200` | **Requires auth** |
+
+Authentication details and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
 ---
 
@@ -109,7 +116,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/
 make validate
 ```
 
-This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, frontend asset smoke, and LLM status probe.
+This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, auth smoke, frontend asset smoke, and LLM status probe.
 
 ---
 
@@ -118,7 +125,8 @@ This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, fro
 | Doc | Contents |
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow, LLM curl examples, troubleshooting |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Auth flow, cookies, tokens, curl examples |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow, troubleshooting |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phased plan |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security posture |
 

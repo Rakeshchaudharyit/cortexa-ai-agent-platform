@@ -38,8 +38,10 @@ cd frontend && npm run dev
 
 | Package | Allowed contents |
 | --- | --- |
-| `app/api/` | Routers, HTTP mapping to services |
+| `app/api/` | Routers, HTTP mapping to services, auth deps |
 | `app/core/` | Settings, logging, exceptions, lifespan |
+| `app/models/` | SQLAlchemy ORM models |
+| `app/security/` | Password hashing and token helpers |
 | `app/schemas/` | Pydantic DTOs |
 | `app/services/` | Business / orchestration logic |
 | `app/providers/` | External system adapters |

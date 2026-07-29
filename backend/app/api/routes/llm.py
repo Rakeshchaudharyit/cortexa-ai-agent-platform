@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from starlette.requests import ClientDisconnect
 
+from app.api.deps import CurrentActiveUser
 from app.llm.schemas import GenerateRequest, GenerateResponse, LLMStatusResponse
 from app.services.llm import LLMService
 
@@ -30,7 +31,10 @@ def _llm_service(request: Request) -> LLMService:
     summary="LLM provider and model availability status",
 )
 async def llm_status(request: Request) -> LLMStatusResponse:
-    """Report configured provider/model reachability without affecting /ready."""
+    """Report configured provider/model reachability without affecting /ready.
+
+    Public by design — does not require authentication.
+    """
     return await _llm_service(request).status()
 
 
@@ -39,7 +43,11 @@ async def llm_status(request: Request) -> LLMStatusResponse:
     response_model=GenerateResponse,
     summary="Non-streaming text generation",
 )
-async def llm_generate(request: Request, body: GenerateRequest) -> GenerateResponse:
+async def llm_generate(
+    request: Request,
+    body: GenerateRequest,
+    _user: CurrentActiveUser,
+) -> GenerateResponse:
     return await _llm_service(request).generate(body)
 
 
@@ -48,7 +56,11 @@ async def llm_generate(request: Request, body: GenerateRequest) -> GenerateRespo
     summary="Streaming text generation (SSE)",
     response_class=StreamingResponse,
 )
-async def llm_stream(request: Request, body: GenerateRequest) -> StreamingResponse:
+async def llm_stream(
+    request: Request,
+    body: GenerateRequest,
+    _user: CurrentActiveUser,
+) -> StreamingResponse:
     service = _llm_service(request)
 
     async def event_stream() -> AsyncIterator[bytes]:

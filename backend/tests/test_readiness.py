@@ -86,6 +86,7 @@ async def test_system_info_ollama_feature_enabled(client: AsyncClient, app: Fast
     assert payload["api_version"] == "v1"
     assert payload["features"] == {
         "ollama": True,
+        "auth": True,
         "rag": False,
         "memory": False,
         "tools": False,

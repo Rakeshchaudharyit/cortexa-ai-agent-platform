@@ -2,7 +2,7 @@
 
 Cortexa AI Agent Platform — system architecture.
 
-Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. RAG, memory, tools, voice, and authentication remain unimplemented.
+Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. RAG, memory, tools, and voice remain unimplemented.
 
 ---
 
@@ -17,16 +17,16 @@ Phase 0 defined the design contract. Phase 1 delivered the application foundatio
 
 ---
 
-## Phase 2 Runtime Stack
+## Phase 3 Runtime Stack
 
 ```
-Frontend (Next.js system + LLM status)
-        ↓  HTTP (NEXT_PUBLIC_API_BASE_URL)
+Frontend (Next.js status + auth screens)
+        ↓  HTTP + credentials (cookies) / Bearer access token
 FastAPI API routes
         ↓
-Health / system / LLM services
+Auth / Health / system / LLM services
         ↓
-db/ + providers/redis + llm/providers/ollama
+db/ models (users, refresh_sessions) + providers/redis + llm/providers/ollama
         ↓
 PostgreSQL 17  |  Redis 7.4  |  Ollama
 ```
@@ -48,22 +48,27 @@ Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host 
 
 ---
 
-## Backend Package Layout (Phase 2)
+## Backend Package Layout (Phase 3)
 
 ```text
 backend/
 ├── app/
-│   ├── api/routes/     # health, system, llm
+│   ├── api/routes/     # health, system, llm, auth
+│   ├── api/deps.py     # get_current_user / active user / require_role
 │   ├── core/           # config, exceptions, logging, lifespan
 │   ├── db/             # base, session, health
+│   ├── models/         # User, RefreshSession
+│   ├── security/       # passwords (Argon2id), JWT + refresh helpers
 │   ├── llm/            # provider protocol, factory, Ollama
 │   ├── providers/      # redis, shared httpx client
 │   ├── schemas/        # Pydantic DTOs
-│   ├── services/       # health + llm services
+│   ├── services/       # health + llm + auth services
 │   └── main.py
 ├── alembic/
-└── tests/              # includes tests/fakes for deterministic LLM fakes
+└── tests/
 ```
+
+Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
 
 ---
 

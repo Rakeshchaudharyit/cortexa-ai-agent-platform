@@ -5,7 +5,7 @@
 	health ready validate clean compose-config secrets-check
 
 help:
-	@echo "Cortexa AI Agent Platform — Phase 2"
+	@echo "Cortexa AI Agent Platform — Phase 3"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install         Install backend + frontend dependencies locally"
@@ -26,7 +26,7 @@ help:
 	@echo "  make lint            Run ruff + eslint"
 	@echo "  make format          Format backend with ruff"
 	@echo "  make typecheck       Run mypy + tsc"
-	@echo "  make validate        Full Phase 1 + Phase 2 validation suite"
+	@echo "  make validate        Full Phase 1–3 validation suite"
 	@echo ""
 	@echo "Ops:"
 	@echo "  make migrate         Run Alembic upgrade head (Docker backend)"

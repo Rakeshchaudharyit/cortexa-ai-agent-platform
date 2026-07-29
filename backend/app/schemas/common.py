@@ -24,6 +24,7 @@ class ErrorResponse(BaseModel):
 
 class FeatureFlags(BaseModel):
     ollama: bool = False
+    auth: bool = False
     rag: bool = False
     memory: bool = False
     tools: bool = False

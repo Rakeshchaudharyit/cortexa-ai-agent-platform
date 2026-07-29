@@ -20,6 +20,7 @@ export type ReadinessResponse = {
 
 export type FeatureFlags = {
   ollama: boolean;
+  auth: boolean;
   rag: boolean;
   memory: boolean;
   tools: boolean;
@@ -46,6 +47,43 @@ export type LLMStatusResponse = {
   provider_reachable: boolean;
   model_available: boolean;
   status: LLMStatus;
+  message: string;
+};
+
+export type UserRole = "user" | "admin";
+export type UserStatus = "active" | "disabled";
+
+export type UserPublic = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  status: UserStatus;
+  is_email_verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+};
+
+export type AuthTokenResponse = {
+  user: UserPublic;
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  access_token_expires_at: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  full_name: string;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type MessageResponse = {
   message: string;
 };
 

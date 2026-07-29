@@ -44,7 +44,7 @@ Convert the Phase 0 scaffold into a real, locally runnable application foundatio
 
 ## Phase 2 — Local LLM Provider and Ollama Integration
 
-**Status:** Current
+**Status:** Complete
 
 ### Objective
 
@@ -59,19 +59,6 @@ Establish a production-quality, provider-neutral LLM layer with Ollama as the fi
 - Deterministic tests with mocked HTTP / fake providers
 - Minimal frontend LLM status display (no chat product)
 
-### Acceptance Criteria
-
-1. Phase 1 Docker and frontend asset validation still passes
-2. Provider abstraction is implemented
-3. Ollama provider is implemented without auto-pulling models
-4. `GET /api/v1/llm/status` works with controlled missing-model behavior
-5. `POST /api/v1/llm/generate` and `POST /api/v1/llm/stream` work
-6. Errors use the safe normalized envelope
-7. Tests do not require a downloaded model
-8. Backend pytest / ruff / mypy pass
-9. Frontend lint / typecheck / test / build pass
-10. Documentation covers provider usage and troubleshooting
-
 ### Exclusions
 
 - Authentication
@@ -83,7 +70,35 @@ Establish a production-quality, provider-neutral LLM layer with Ollama as the fi
 
 ---
 
-## Phase 3 — Frontend Application Expansion
+## Phase 3 — Authentication and User Foundation
+
+**Status:** Current
+
+### Objective
+
+Implement production-quality authentication and user foundation with JWT access tokens and HttpOnly refresh sessions.
+
+### Deliverables
+
+- User + refresh-session models and Alembic migration
+- Argon2id password hashing
+- Register / login / refresh / logout / me APIs
+- Refresh-token rotation and reuse detection
+- Auth dependencies protecting LLM generate/stream
+- Minimal `/login` and `/register` frontend flow
+- Comprehensive auth tests and documentation
+
+### Exclusions
+
+- RAG / document ingestion
+- Conversation memory / agent tools / voice
+- Organization or tenant management
+- Social login / password-reset email delivery
+- Admin dashboard / chat UI / API keys
+
+---
+
+## Phase 4 — Frontend Application Expansion
 
 ### Objective
 
@@ -96,11 +111,11 @@ Expand the status UI toward a durable application shell without fabricating dash
 
 ---
 
-## Phase 4 — Database Models, Migrations & Repositories
+## Phase 5 — Database Models, Migrations & Repositories (domain expansion)
 
 ### Objective
 
-Introduce domain persistence with migrations, SQLAlchemy models, and repository interfaces.
+Expand domain persistence beyond auth with additional repositories as product features arrive.
 
 ---
 

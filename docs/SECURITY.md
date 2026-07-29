@@ -38,21 +38,25 @@ Phase 1 local credentials:
 
 ---
 
-## Phase 2 Security Posture
+## Phase 3 Security Posture
 
-Implemented on top of Phase 1:
+Implemented on top of Phase 1–2:
 
-- Request size and output token limits for LLM APIs
-- Restricted message roles (`system` / `user` / `assistant`)
-- Structured LLM errors without upstream body leakage
-- Prompt/completion bodies are not logged by default
-- Shared outbound httpx client with explicit timeouts (no indefinite retries)
-- `/ready` remains independent of Ollama availability
+- Argon2id password hashing; passwords never logged or returned
+- Short-lived JWT access tokens (`type=access`, explicit algorithm allow-list)
+- Opaque refresh tokens stored only as SHA-256 hashes
+- Refresh rotation + family revocation on reuse
+- HttpOnly refresh cookies; access tokens stay in browser memory
+- Disabled accounts rejected for login, refresh, and bearer access
+- LLM generate/stream require an authenticated active user
+- CORS credentials limited to explicit approved origins
+- Structured auth errors without SQL/crypto leakage
 
 Still deferred:
 
-- Authentication / session security
-- Rate limiting enforcement
+- Production rate-limit enforcement (login/register/refresh must be limited in production)
+- Email verification / password-reset delivery
+- Admin tooling and org/tenant isolation
 - Tool permission model
 - Prompt-injection mitigations beyond input size limits
 

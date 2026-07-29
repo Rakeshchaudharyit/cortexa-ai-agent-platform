@@ -1,7 +1,7 @@
 [project]
 name = "cortexa-backend"
 version = "0.1.0"
-description = "Cortexa AI Agent Platform — FastAPI backend (Phase 2 LLM provider)."
+description = "Cortexa AI Agent Platform — FastAPI backend (Phase 3 authentication)."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }
@@ -12,11 +12,14 @@ dependencies = [
   "uvicorn[standard]>=0.32.0,<0.33",
   "pydantic>=2.9.0,<3",
   "pydantic-settings>=2.6.0,<3",
+  "email-validator>=2.2.0,<3",
   "sqlalchemy[asyncio]>=2.0.36,<2.1",
   "asyncpg>=0.30.0,<0.31",
   "alembic>=1.14.0,<1.15",
   "redis>=5.2.0,<6",
   "httpx>=0.28.0,<0.29",
+  "argon2-cffi>=23.1.0,<26",
+  "PyJWT>=2.9.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -66,4 +69,8 @@ plugins = []
 
 [[tool.mypy.overrides]]
 module = ["alembic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["argon2.*", "jwt.*"]
 ignore_missing_imports = true

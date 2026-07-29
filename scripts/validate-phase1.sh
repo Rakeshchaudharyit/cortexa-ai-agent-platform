@@ -35,6 +35,10 @@ echo "OK"
 echo "==> secrets check"
 make secrets-check
 
+echo "==> alembic upgrade head"
+docker compose exec -T backend alembic upgrade head
+docker compose exec -T backend alembic current
+
 if docker compose ps --status running backend 2>/dev/null | grep -q backend; then
   echo "==> backend pytest (docker)"
   docker compose exec -T backend pytest
@@ -59,6 +63,8 @@ if docker compose ps --status running frontend 2>/dev/null | grep -q frontend; t
   docker compose exec -T -u cortexa frontend npm run typecheck
   echo "==> frontend test (docker)"
   docker compose exec -T -u cortexa frontend npm test -- --run
+  echo "==> clear Next.js build cache (avoid stale .next collisions)"
+  docker compose exec -T -u root frontend sh -c 'rm -rf /app/.next/cache /app/.next/server /app/.next/static /app/.next/types 2>/dev/null || true'
   echo "==> frontend build (docker)"
   docker compose exec -T -u cortexa frontend npm run build
   echo "==> restart frontend after production build (restore next dev)"
@@ -91,6 +97,42 @@ echo "==> llm status endpoint"
 curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/llm/status" >/dev/null
 echo "OK"
 
+echo "==> auth register/login/me smoke"
+COOKIE_JAR="$(mktemp)"
+REGISTER_EMAIL="validate-$(date +%s)@example.com"
+curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"${REGISTER_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"full_name\":\"Validate User\"}" \
+  >/tmp/cortexa-auth-register.json
+ACCESS_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-auth-register.json"))["access_token"])')"
+curl -fsS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "http://localhost:${BACKEND_PORT}/api/v1/auth/me" >/dev/null
+curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/refresh" >/tmp/cortexa-auth-refresh.json
+ACCESS_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-auth-refresh.json"))["access_token"])')"
+ANON_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/llm/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"hi"}]}')"
+if [[ "${ANON_CODE}" != "401" ]]; then
+  echo "expected anonymous LLM generate to return 401, got ${ANON_CODE}"
+  exit 1
+fi
+AUTH_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/llm/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"hi"}]}')"
+if [[ "${AUTH_CODE}" == "401" ]]; then
+  echo "authenticated LLM generate must not return 401, got ${AUTH_CODE}"
+  exit 1
+fi
+curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/logout" >/dev/null
+rm -f "${COOKIE_JAR}" /tmp/cortexa-auth-register.json /tmp/cortexa-auth-refresh.json
+echo "OK"
+
 echo "==> frontend HTTP"
 curl -fsS "http://localhost:${FRONTEND_PORT}/" >/dev/null
 echo "OK"
@@ -104,4 +146,4 @@ curl -fsS -o /dev/null "http://localhost:${FRONTEND_PORT}/icon.svg"
 echo "OK"
 
 echo ""
-echo "Phase 1 + Phase 2 validation: PASSED"
+echo "Phase 1 + Phase 2 + Phase 3 validation: PASSED"

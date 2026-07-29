@@ -10,11 +10,22 @@ from app.llm.providers.ollama import OllamaProvider
 from app.llm.schemas import GenerateRequest, MessageRole
 from app.main import create_app
 from app.services.llm import LLMService
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from tests.conftest import StubHealthService
+from tests.conftest import StubHealthService, make_test_user
 from tests.fakes.llm import FakeLLMProvider
+
+
+def _attach_auth_override(app: FastAPI) -> None:
+    from app.api.deps import get_current_active_user
+    from app.models.user import User
+
+    async def _override() -> User:
+        return make_test_user()
+
+    app.dependency_overrides[get_current_active_user] = _override
 
 
 def test_llm_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,6 +118,7 @@ async def test_status_provider_unavailable(settings: Settings) -> None:
         settings=settings,
         provider=FakeLLMProvider(provider_reachable=False, model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/llm/status")
@@ -129,6 +141,7 @@ async def test_status_model_unavailable(settings: Settings) -> None:
             model="qwen2.5:7b",
         ),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/llm/status")
@@ -162,6 +175,7 @@ async def test_generate_provider_timeout_maps_to_504(settings: Settings) -> None
         settings=settings,
         provider=FakeLLMProvider(fail_mode="timeout", model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -182,6 +196,7 @@ async def test_generate_model_unavailable_maps_to_424(settings: Settings) -> Non
         settings=settings,
         provider=FakeLLMProvider(fail_mode="model_missing", model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -200,6 +215,7 @@ async def test_generate_provider_unavailable_maps_to_503(settings: Settings) -> 
         settings=settings,
         provider=FakeLLMProvider(fail_mode="unavailable", model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -218,6 +234,7 @@ async def test_generate_invalid_upstream_maps_to_502(settings: Settings) -> None
         settings=settings,
         provider=FakeLLMProvider(fail_mode="invalid", model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -286,6 +303,7 @@ async def test_stream_upstream_error_event(settings: Settings) -> None:
         settings=settings,
         provider=FakeLLMProvider(fail_mode="stream_error", model="qwen2.5:7b"),
     )
+    _attach_auth_override(app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         async with client.stream(
@@ -297,3 +315,21 @@ async def test_stream_upstream_error_event(settings: Settings) -> None:
     assert "event: start" in body
     assert "event: error" in body
     assert "llm_generation_error" in body
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_anonymous_without_override(settings: Settings) -> None:
+    app = create_app(settings)
+    app.state.health_service = StubHealthService(settings)
+    app.state.llm_service = LLMService(
+        settings=settings,
+        provider=FakeLLMProvider(model="qwen2.5:7b"),
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/llm/generate",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_access_token"

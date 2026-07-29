@@ -2,11 +2,12 @@
 
 | Document | Description |
 | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layered system design and Phase 2 LLM boundaries |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Layered system design and Phase 3 auth + LLM boundaries |
+| [AUTHENTICATION.md](AUTHENTICATION.md) | Auth flow, cookies, tokens, curl examples |
 | [ROADMAP.md](ROADMAP.md) | Phases 0–12 with acceptance criteria |
 | [SECURITY.md](SECURITY.md) | Local-first security model |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Coding standards, LLM curl examples, troubleshooting |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Coding standards, troubleshooting |
 
 Project overview lives in the root [README.md](../README.md).
 
-**Phase 2** implements a provider-neutral Ollama LLM layer (status, generate, SSE stream). Chat UI, RAG, memory, tools, voice, and authentication remain unavailable.
+**Phase 3** implements authentication (JWT access + HttpOnly refresh rotation) and protects LLM generate/stream. Chat UI, RAG, memory, tools, voice, and org/tenant management remain unavailable.

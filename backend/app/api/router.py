@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import health, llm, system
+from app.api.routes import auth, health, llm, system
 from app.core.config import Settings
 
 
@@ -12,6 +12,7 @@ def build_api_router(settings: Settings) -> APIRouter:
     """Compose versioned API routes under the configured prefix."""
     api = APIRouter(prefix=settings.api_prefix)
     api.include_router(system.router)
+    api.include_router(auth.router)
     api.include_router(llm.router)
     return api
 

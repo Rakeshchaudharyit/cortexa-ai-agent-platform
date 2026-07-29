@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.lifespan import lifespan
 from app.core.logging import configure_logging, get_logger, request_id_ctx
+from app.db.session import init_engine
 from app.services.health import HealthService
 
 
@@ -99,8 +100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved.app_name,
         version=resolved.app_version,
         description=(
-            "Cortexa AI Agent Platform API — Phase 2 local LLM provider (Ollama). "
-            "RAG, memory, tools, voice, and authentication are not available yet."
+            "Cortexa AI Agent Platform API — Phase 3 authentication and user foundation. "
+            "RAG, memory, tools, and voice are not available yet."
         ),
         lifespan=lifespan,
         docs_url="/docs" if not resolved.is_production else None,
@@ -110,6 +111,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Stash settings early so tests can override services before lifespan.
     app.state.settings = resolved
     app.state.health_service = HealthService(settings=resolved)
+    # Ensure session factory exists even when lifespan is not exercised (unit tests).
+    init_engine(resolved)
     # LLM service is attached during lifespan (live) or by tests (stub/fake).
 
     app.add_middleware(

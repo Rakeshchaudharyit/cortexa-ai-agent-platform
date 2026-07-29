@@ -131,6 +131,7 @@ See `.env.example`. Key variables:
 - Phase 2 LLM: `LLM_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`,
   `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_CONNECT_TIMEOUT_SECONDS`,
   `LLM_MAX_INPUT_CHARACTERS`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_DEFAULT_TEMPERATURE`
+- Phase 5 conversations: `CONVERSATION_*`, `CHAT_GENERAL_MODE_ENABLED`, `CHAT_DEFAULT_*`, `MESSAGE_MAX_RESPONSE_TOKENS` (see `.env.example`)
 
 Security placeholders may exist but are not implemented yet.
 
@@ -138,10 +139,22 @@ Security placeholders may exist but are not implemented yet.
 
 ## Health / Readiness / LLM Status
 
-- `/health` — process alive; no DB/Redis/Ollama
-- `/ready` — Postgres `SELECT 1` and Redis `PING`; independent results; `503` if any fail
+- `/health` and `/health/live` — process alive; no DB/Redis/Ollama
+- `/ready` and `/health/ready` — Postgres connectivity, Alembic at head, required Phase 5 conversation tables, and Redis `PING`; independent results; `503` if any fail
 - `/api/v1/llm/status` — Ollama reachability + configured model availability; **does not** gate `/ready`
 - Errors never include credentials, URLs with secrets, or stack traces
+
+### Migrations and connection pools
+
+- The backend Docker entrypoint runs `alembic upgrade head` **before** Uvicorn starts, so the application connection pool is created against the post-migration schema.
+- Migration failure aborts container startup (`set -e`); the API must not serve a missing schema.
+- Applying migrations to a **running** backend requires a **backend restart**. Long-lived asyncpg connections can retain stale type OIDs / prepared statements after DDL (symptoms: `cache lookup failed for type`, missing relations).
+
+### Frontend `.next` cache
+
+- Never delete selected files under `.next/cache` while Next.js is running (causes webpack `ENOENT` on `.pack.gz`).
+- Prefer: stop the frontend → delete the entire `.next` tree → restart/rebuild cleanly.
+- `scripts/check_frontend_cache_safety.sh` guards validate/startup scripts against partial live deletes.
 
 ---
 
@@ -225,30 +238,66 @@ Never set `OLLAMA_BASE_URL=http://localhost:11435` inside the backend container.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `/ready` → 503 database error | Postgres not healthy / wrong URL | `docker compose ps`, check `DATABASE_URL` |
+| `/ready` → 503 database error | Postgres not healthy / wrong URL / migrations behind / missing tables | `docker compose ps`, `alembic current`, check `DATABASE_URL`; restart backend after migrate |
 | `/ready` → 503 redis error | Redis stopped | `docker compose start redis` |
-| Frontend shows backend unavailable | API not up or wrong `NEXT_PUBLIC_API_BASE_URL` | Confirm health curl on the published backend port |
-| Frontend `/_next/static` 404 or icon 500 | `.next` polluted by root-owned build | Restart frontend; validate runs as `-u cortexa` then restarts |
+| `relation "conversations" does not exist` | Migration 0004 not applied / entrypoint skipped | Rebuild backend; confirm entrypoint runs `alembic upgrade head`; restart |
+| `cache lookup failed for type` | Stale asyncpg cache after DDL on a live process | Restart backend after migrations |
+| Frontend shows backend unavailable | API not up, not ready, or wrong `NEXT_PUBLIC_API_BASE_URL` | Confirm `/health/live` + `/health/ready` on the published backend port |
+| Frontend `/_next/static` 404, icon 500, or `.pack.gz` ENOENT | `.next` cleared while Next was running, or polluted cache | Stop frontend; delete entire `.next`; restart (never partial live deletes) |
 | LLM status `provider_unavailable` | Ollama down / wrong base URL | `docker compose ps ollama`; use `http://ollama:11434` |
 | LLM status `model_unavailable` | Model not pulled | `docker compose exec ollama ollama pull qwen2.5:7b` |
 | Embedding status `model_unavailable` | Embedding model not pulled | `docker compose exec ollama ollama pull nomic-embed-text` |
 | Document upload `415` | Unsupported type | Use `.txt`, `.md`, `.pdf`, or `.docx` |
 | Document upload `409` | Duplicate checksum | File already uploaded for this user |
 | RAG returns no citations | No ready docs / low similarity | Upload a document; lower `RAG_MIN_SIMILARITY` only in tests |
+| Chat no-context fallback | Scoped retrieval returned no chunks | Expected — fixed message, no LLM; upload relevant docs or widen scope |
+| Archived conversation rejects send | By design | `POST .../unarchive` before messaging |
 | Generate → 504 | Provider timeout | Raise `OLLAMA_REQUEST_TIMEOUT_SECONDS` or reduce `max_tokens` |
 | Generate → 424 | Model missing | Pull model manually |
 | Docker bind mount denied | Docker Desktop file sharing | Move repo under an allowed path (for example `~/Projects`) |
 
 ---
 
-## Current Limitations (Phase 4)
+## Phase 5 — Conversations & chat
 
-- No product chat UI / conversation history
-- No memory, tools, or voice
-- Document ingest is synchronous (request-scoped); no background workers
+### Manual smoke
+
+After auth and at least one **ready** document (optional for general chat with `document_ids: []`):
+
+```bash
+BASE="http://localhost:18000"
+# Obtain ACCESS as in AUTHENTICATION.md or RAG.md
+
+curl -fsS -H "Authorization: Bearer $ACCESS" \
+  -H "Content-Type: application/json" \
+  -X POST "$BASE/api/v1/conversations" \
+  -d '{"initial_message":"Hello"}' | python3 -m json.tool
+```
+
+Open **`http://localhost:13000/chat`** for the product UI (sidebar, streaming, citations).
+
+### Tests
+
+```bash
+cd backend && pytest tests/test_conversations_api.py
+cd frontend && npm test -- --run tests/chat.test.tsx
+```
+
+Backend tests use injected **fake title/summarizer** callables and mocked LLM where appropriate — no live Ollama required for the conversation API suite.
+
+Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
+
+---
+
+## Current Limitations (Phase 5)
+
+- No cross-conversation or profile memory (only per-conversation rolling summary)
+- No agent tools or voice
+- Document ingest remains synchronous (request-scoped); no background workers
 - PDF text extraction only (no OCR); encrypted PDFs rejected
 - Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)
-- Frontend is an operator/status + documents surface, not an enterprise dashboard
+- Deleted conversations are not restorable; token fields may be null from the provider
+- Home page remains operator/status + documents; `/chat` is the conversation product surface
 
 ---
 

@@ -2,7 +2,7 @@
 
 Cortexa AI Agent Platform — system architecture.
 
-Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. Phase 4 adds documents, embeddings (pgvector), and grounded RAG. Memory, tools, and voice remain unimplemented.
+Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. Phase 4 adds documents, embeddings (pgvector), and grounded RAG. Phase 5 adds persistent conversations, multi-turn RAG chat, streaming, and the `/chat` UI. Agent tools, cross-conversation memory, and voice remain unimplemented.
 
 ---
 
@@ -17,17 +17,17 @@ Phase 0 defined the design contract. Phase 1 delivered the application foundatio
 
 ---
 
-## Phase 4 Runtime Stack
+## Phase 5 Runtime Stack
 
 ```
-Frontend (Next.js status + auth + documents panel)
+Frontend (Next.js — status, auth, documents, /chat)
         ↓  HTTP + credentials (cookies) / Bearer access token
 FastAPI API routes
         ↓
-Auth / Health / system / LLM / Documents / RAG / Embeddings services
+Auth / Health / system / LLM / Documents / RAG / Embeddings / Conversations / Chat services
         ↓
-db/ models (users, refresh_sessions, documents, document_chunks)
-+ storage/local + documents/* + embeddings/* + llm/providers/ollama
+db/ models (users, refresh_sessions, documents, document_chunks, conversations, messages, message_citations)
++ storage/local + documents/* + embeddings/* + conversations/* + llm/providers/ollama
         ↓
 PostgreSQL 17 + pgvector  |  Redis 7.4  |  Ollama (chat + embeddings)
 ```
@@ -40,7 +40,7 @@ Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host 
 
 | Layer | Responsibility | May call | Must not call |
 | --- | --- | --- | --- |
-| **Frontend** | System + LLM status UI | Backend HTTP APIs | Ollama, DB, Redis |
+| **Frontend** | Status, auth, documents, chat UI | Backend HTTP APIs | Ollama, DB, Redis |
 | **FastAPI (API)** | HTTP, CORS, validation, SSE | Services | DB engines, Redis, Ollama HTTP |
 | **Service Layer** | Orchestration + request limits | Providers / LLM interface | Framework request objects for infra |
 | **LLM providers** | Ollama transport + normalization | Ollama HTTP | Route handlers |
@@ -49,16 +49,17 @@ Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host 
 
 ---
 
-## Backend Package Layout (Phase 4)
+## Backend Package Layout (Phase 5)
 
 ```text
 backend/
 ├── app/
-│   ├── api/routes/     # health, system, llm, auth, documents, rag, embeddings
-│   ├── api/deps.py     # auth + document/rag/embedding deps
+│   ├── api/routes/     # health, system, llm, auth, documents, rag, embeddings, conversations
+│   ├── api/deps.py     # auth + service deps (documents, rag, chat, conversations)
+│   ├── conversations/  # schemas, context builder, domain exceptions
 │   ├── core/           # config, exceptions, logging, lifespan
 │   ├── db/             # base, session, health
-│   ├── models/         # User, RefreshSession, Document, DocumentChunk
+│   ├── models/         # User, RefreshSession, Document, DocumentChunk, Conversation, Message, …
 │   ├── security/       # passwords (Argon2id), JWT + refresh helpers
 │   ├── documents/      # validation, extraction, chunking, schemas
 │   ├── embeddings/     # provider protocol, factory, Ollama embeddings
@@ -66,14 +67,15 @@ backend/
 │   ├── llm/            # provider protocol, factory, Ollama chat
 │   ├── providers/      # redis, shared httpx client
 │   ├── schemas/        # Pydantic DTOs
-│   ├── services/       # health, llm, auth, documents, retrieval, rag, embeddings
+│   ├── services/       # health, llm, auth, documents, retrieval, rag, embeddings, conversations, messages, chat
 │   └── main.py
 ├── alembic/
 └── tests/
 ```
 
-Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).  
+Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
 Documents / RAG details: [RAG.md](RAG.md).
+Conversations / chat: [CONVERSATIONS.md](CONVERSATIONS.md).
 
 ---
 
@@ -99,11 +101,13 @@ flowchart LR
 
 | Endpoint | Purpose | Fails when |
 | --- | --- | --- |
-| `GET /health` | Process liveness | Process down |
-| `GET /ready` | Essential infra readiness | PostgreSQL or Redis unhealthy |
+| `GET /health`, `GET /health/live` | Process liveness | Process down |
+| `GET /ready`, `GET /health/ready` | Essential infra readiness | PostgreSQL unreachable, Alembic behind head, required conversation tables missing, or Redis unhealthy |
 | `GET /api/v1/llm/status` | AI provider/model diagnostics | Never fails readiness; reports provider/model state |
 
 Ollama being down or the model missing does **not** make `/ready` return 503.
+
+Backend containers apply `alembic upgrade head` in the entrypoint **before** Uvicorn creates the DB pool. After applying migrations to a running instance, **restart the backend** so asyncpg does not keep stale type/relation caches.
 
 ---
 
@@ -122,9 +126,49 @@ Ollama being down or the model missing does **not** make `/ready` return 503.
 | `start` | `{provider, model}` |
 | `delta` | `{content}` |
 | `complete` | `{provider, model, content, finish_reason?, usage?, latency_ms?}` |
-| `error` | `{code, message}` |
+| `error` | `{code, message}` or `{error:{code,message}}` on conversation routes |
+
+Conversation streams add `citation` and `metadata` events and a richer `complete` payload — see [CONVERSATIONS.md](CONVERSATIONS.md).
 
 Raw Ollama payloads are never forwarded to clients.
+
+---
+
+## Conversation Architecture (Phase 5)
+
+```mermaid
+flowchart TB
+  UI["Next.js /chat"] --> API["api/routes/conversations.py"]
+  API --> ConvSvc["services/conversations.py"]
+  API --> ChatSvc["services/chat.py"]
+  ChatSvc --> MsgSvc["services/messages.py"]
+  ChatSvc --> Ret["services/retrieval.py"]
+  ChatSvc --> Ctx["conversations/context.py"]
+  ChatSvc --> LLM["services/llm.py"]
+  ConvSvc --> DB[(PostgreSQL)]
+  MsgSvc --> DB
+  Ret --> DB
+```
+
+### Message lifecycle
+
+1. **Send** — `require_active_conversation` (rejects archived). Optional idempotency via `client_request_id`.
+2. **Persist user** — append with monotonic `sequence_number`; optional idempotency unique constraint.
+3. **Assistant pending** — create `pending` assistant row before generation/stream.
+4. **Retrieve** — scope from `document_ids` (all docs / none / subset); see [CONVERSATIONS.md](CONVERSATIONS.md).
+5. **Build context** — priority: current message → RAG → history → summary → trim oldest.
+6. **Generate** — LLM call, or no-context fallback without LLM when retrieval ran but returned no chunks.
+7. **Finalize** — store content, citations (`MessageCitation` snapshots), usage fields, `grounded` flag.
+8. **Post-turn** — optional auto-title (first assistant only) and rolling summary (failures non-fatal).
+
+### Edit / regenerate
+
+- **Edit** supersedes the latest user message and following active turns; does not auto-reply.
+- **Regenerate** supersedes the latest assistant only; reuses the latest user message.
+
+### Ownership
+
+All conversation routes resolve resources by `(user_id, conversation_id)` (and message ownership). See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -143,6 +187,6 @@ All errors use the Phase 1 envelope: `{error:{code,message,details}, request_id}
 
 ---
 
-## Frontend Architecture (Phase 4)
+## Frontend Architecture (Phase 5)
 
-The status page remains (health, readiness, LLM, feature flags). Phase 3 auth screens remain. Phase 4 adds an authenticated **Documents & grounded Q&A** panel (upload, list/delete, RAG query with citations). No product chat composer, conversation history, memory, tools, or voice controls.
+The status page remains (health, readiness, LLM, feature flags). Phase 3 auth screens remain. Phase 4 adds an authenticated **Documents & grounded Q&A** panel on the home page. Phase 5 adds **`/chat`** — conversation sidebar, message list, streaming composer, and citation cards (`frontend/components/chat/*`). Access tokens stay memory-only; streaming uses fetch + `ReadableStream` with bearer auth.

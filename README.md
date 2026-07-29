@@ -4,9 +4,11 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 4 — Documents, Embeddings & RAG  
-> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication, document ingestion, and grounded Q&A are runnable.  
-> Product chat UI, memory, tools, voice, and organization/tenant management are **not** implemented.
+> **Current status:** Phase 5 — Persistent Conversations & Multi-Turn RAG Chat
+>
+> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication, document ingestion, grounded Q&A, and the `/chat` conversation UI are runnable.
+>
+> Cross-conversation memory, agent tools, voice, and organization/tenant management are **not** implemented.
 
 ---
 
@@ -22,31 +24,31 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 4 adds private document upload, local embeddings, pgvector retrieval, and grounded answers with citations, on top of Phase 1–3 infrastructure and authentication.
+Phase 4 adds private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 adds persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI — on top of Phase 1–3 infrastructure and authentication.
 
 ---
 
-## What Phase 4 Implements
+## What Phase 5 Implements
 
 | Capability | Status |
 | --- | --- |
-| Phase 1–3 foundation + auth | Preserved |
-| Document upload (txt/md/pdf/docx, 5 MiB) | Implemented |
-| Synchronous extract → chunk → embed | Implemented |
-| pgvector storage + cosine retrieval | Implemented |
-| Grounded RAG query + citations | Implemented |
-| Embedding status API | Implemented |
-| Authenticated Documents UI | Implemented |
-| Document/RAG tests + docs | Implemented |
+| Phase 1–4 foundation + auth + RAG | Preserved |
+| Conversation CRUD, archive, search | Implemented |
+| Multi-turn chat with RAG + history + rolling summary | Implemented |
+| SSE streaming + citation events | Implemented |
+| Edit latest user message / regenerate assistant | Implemented |
+| Usage summary API | Implemented |
+| `/chat` frontend (sidebar, composer, citations) | Implemented |
+| Conversation tests + docs | Implemented |
 
 ## What Remains Unavailable
 
 | Capability | Status |
 | --- | --- |
-| Product chat UI / conversation history | Not implemented |
+| Cross-conversation / profile memory | Not implemented |
 | Organization / tenant management | Not implemented |
 | Social login / password-reset email | Not implemented |
-| Memory / tools / voice | Not implemented |
+| Agent tools / voice | Not implemented |
 | Analytics / admin modules | Not implemented |
 | Automatic model downloads | Intentionally disabled |
 
@@ -69,7 +71,7 @@ docker compose exec ollama ollama pull nomic-embed-text
 
 curl -i http://localhost:18000/api/v1/embeddings/status
 
-open http://localhost:13000
+open http://localhost:13000/chat
 ```
 
 Stop:
@@ -96,8 +98,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/
 
 | Endpoint | Purpose | Success | Notes |
 | --- | --- | --- | --- |
-| `GET /health` | Liveness | `200` | No dependency checks |
-| `GET /ready` | Infra readiness | `200` / `503` | Postgres + Redis only |
+| `GET /health`, `/health/live` | Liveness | `200` | Process-only; no dependency checks |
+| `GET /ready`, `/health/ready` | Infra readiness | `200` / `503` | Postgres + migrations/schema + Redis |
 | `GET /api/v1/system/info` | App info | `200` | `features.auth=true` |
 | `POST /api/v1/auth/register` | Register | `201` | Sets HttpOnly refresh cookie |
 | `POST /api/v1/auth/login` | Login | `200` | Sets HttpOnly refresh cookie |
@@ -107,8 +109,19 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/
 | `GET /api/v1/llm/status` | LLM diagnostics | `200` | Public |
 | `POST /api/v1/llm/generate` | Non-streaming | `200` | **Requires auth** + pulled model |
 | `POST /api/v1/llm/stream` | SSE streaming | `200` | **Requires auth** |
+| `GET /api/v1/embeddings/status` | Embedding diagnostics | `200` | Public |
+| `POST /api/v1/documents` | Upload document | `201` | **Requires auth**; sync ingest |
+| `GET /api/v1/documents` | List documents | `200` | **Requires auth** |
+| `POST /api/v1/rag/query` | One-shot grounded Q&A | `200` | **Requires auth** |
+| `POST /api/v1/conversations` | Create conversation | `201` | **Requires auth** |
+| `GET /api/v1/conversations` | List conversations | `200` | **Requires auth** |
+| `POST /api/v1/conversations/{id}/messages` | Multi-turn chat | `200` | **Requires auth** |
+| `POST /api/v1/conversations/{id}/messages/stream` | Streaming chat (SSE) | `200` | **Requires auth** |
+| `GET /api/v1/usage/summary` | Usage aggregates | `200` | **Requires auth** |
 
 Authentication details and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+Conversations, streaming, and RAG-in-chat: [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md).
+Documents and one-shot RAG: [docs/RAG.md](docs/RAG.md).
 
 ---
 
@@ -118,7 +131,7 @@ Authentication details and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTI
 make validate
 ```
 
-This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, auth smoke, frontend asset smoke, and LLM status probe.
+This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, auth + conversations smoke, frontend asset smoke, `.next` cache safety, and LLM status probe.
 
 ---
 
@@ -130,6 +143,8 @@ This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, fro
 | [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Auth flow, cookies, tokens, curl examples |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow, troubleshooting |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phased plan |
+| [docs/RAG.md](docs/RAG.md) | Documents, embeddings, retrieval |
+| [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md) | Phase 5 conversations & chat |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security posture |
 
 ---

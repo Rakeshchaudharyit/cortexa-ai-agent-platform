@@ -26,3 +26,27 @@ class DocumentStatus(StrEnum):
     processing = "processing"
     ready = "ready"
     failed = "failed"
+
+
+class ConversationStatus(StrEnum):
+    """Conversation lifecycle — archived conversations reject new messages."""
+
+    active = "active"
+    archived = "archived"
+
+
+class MessageRole(StrEnum):
+    """Persisted chat message roles. System messages are internal-only."""
+
+    user = "user"
+    assistant = "assistant"
+    system = "system"
+
+
+class MessageStatus(StrEnum):
+    """Message lifecycle for streaming and failed generations."""
+
+    pending = "pending"
+    complete = "complete"
+    failed = "failed"
+    cancelled = "cancelled"

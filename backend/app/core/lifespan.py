@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import dispose_engine, init_engine
@@ -18,10 +19,13 @@ from app.llm.factory import create_llm_provider
 from app.providers.http import close_http_client, init_http_client
 from app.providers.redis import close_redis, init_redis
 from app.services.auth import AuthService
+from app.services.chat import ChatService
+from app.services.conversations import ConversationService
 from app.services.documents import DocumentService
 from app.services.embeddings import EmbeddingService
 from app.services.health import HealthService
 from app.services.llm import LLMService
+from app.services.messages import MessageService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 from app.storage.local import LocalFilesystemStorage
@@ -80,6 +84,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         retrieval_service=retrieval_service,
         llm_service=llm_service,
     )
+    conversation_service = ConversationService(settings=settings)
+    message_service = MessageService(
+        settings=settings,
+        conversation_service=conversation_service,
+    )
+    chat_service = ChatService(
+        settings=settings,
+        conversation_service=conversation_service,
+        message_service=message_service,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service,
+        context_builder=ConversationContextBuilder(settings),
+    )
 
     app.state.settings = settings
     app.state.engine = engine
@@ -96,6 +113,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.retrieval_service = retrieval_service
     app.state.embedding_service = embedding_service
     app.state.rag_service = rag_service
+    app.state.conversation_service = conversation_service
+    app.state.message_service = message_service
+    app.state.chat_service = chat_service
     app.state.health_service = HealthService(
         settings=settings,
         engine=engine,

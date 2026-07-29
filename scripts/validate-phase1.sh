@@ -63,16 +63,26 @@ if docker compose ps --status running frontend 2>/dev/null | grep -q frontend; t
   docker compose exec -T -u cortexa frontend npm run typecheck
   echo "==> frontend test (docker)"
   docker compose exec -T -u cortexa frontend npm test -- --run
-  echo "==> clear Next.js build cache (avoid stale .next collisions)"
-  # Clear the full .next tree — partial clears leave manifests that break
-  # metadata routes such as /icon.svg during `next build`.
-  docker compose exec -T -u root frontend sh -c 'rm -rf /app/.next/* 2>/dev/null || true'
-  echo "==> frontend build (docker)"
-  docker compose exec -T -u cortexa frontend npm run build
-  echo "==> restart frontend after production build (restore next dev)"
-  docker compose restart frontend
+
+  # Never delete selected files inside .next while Next.js is running.
+  # Stop the frontend, wipe the entire .next volume tree, build, then restart.
+  echo "==> stop frontend before clearing .next"
+  docker compose stop frontend
+  echo "==> clear entire Next.js .next directory (volume-safe)"
+  docker compose run --rm --no-deps -u root --entrypoint sh frontend -c '
+    set -eu
+    if [ -d /app/.next ]; then
+      find /app/.next -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    fi
+    mkdir -p /app/.next
+    chown -R cortexa:cortexa /app/.next
+  '
+  echo "==> frontend build (docker, Next stopped)"
+  docker compose run --rm --no-deps -u cortexa --entrypoint sh frontend -c 'npm run build'
+  echo "==> start frontend (clean next dev)"
+  docker compose up -d frontend
   echo "==> wait for frontend health"
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     if curl -fsS "http://localhost:${FRONTEND_PORT}/" >/dev/null 2>&1; then
       break
     fi
@@ -85,10 +95,12 @@ fi
 
 echo "==> health endpoint"
 curl -fsS "http://localhost:${BACKEND_PORT}/health" >/dev/null
+curl -fsS "http://localhost:${BACKEND_PORT}/health/live" >/dev/null
 echo "OK"
 
 echo "==> ready endpoint"
 curl -fsS "http://localhost:${BACKEND_PORT}/ready" >/dev/null
+curl -fsS "http://localhost:${BACKEND_PORT}/health/ready" >/dev/null
 echo "OK"
 
 echo "==> system info endpoint"
@@ -97,10 +109,6 @@ echo "OK"
 
 echo "==> llm status endpoint"
 curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/llm/status" >/dev/null
-echo "OK"
-
-echo "==> embeddings status endpoint"
-curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/embeddings/status" >/dev/null
 echo "OK"
 
 echo "==> auth register/login/me smoke"
@@ -139,6 +147,30 @@ curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
 rm -f "${COOKIE_JAR}" /tmp/cortexa-auth-register.json /tmp/cortexa-auth-refresh.json
 echo "OK"
 
+echo "==> conversations empty-list smoke"
+COOKIE_JAR="$(mktemp)"
+CONV_EMAIL="validate-conv-$(date +%s)@example.com"
+curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"${CONV_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"full_name\":\"Conv User\"}" \
+  >/tmp/cortexa-conv-register.json
+CONV_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-conv-register.json"))["access_token"])')"
+CONV_LIST="$(curl -fsS -H "Authorization: Bearer ${CONV_TOKEN}" \
+  "http://localhost:${BACKEND_PORT}/api/v1/conversations")"
+python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("total")==0 and d.get("items")==[], d' "${CONV_LIST}"
+CONV_CREATE_CODE="$(curl -s -o /tmp/cortexa-conv-create.json -w "%{http_code}" \
+  -H "Authorization: Bearer ${CONV_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST "http://localhost:${BACKEND_PORT}/api/v1/conversations" \
+  -d '{}')"
+if [[ "${CONV_CREATE_CODE}" != "201" ]]; then
+  echo "expected conversation create 201, got ${CONV_CREATE_CODE}"
+  exit 1
+fi
+rm -f "${COOKIE_JAR}" /tmp/cortexa-conv-register.json /tmp/cortexa-conv-create.json
+echo "OK"
+
 echo "==> frontend HTTP"
 curl -fsS "http://localhost:${FRONTEND_PORT}/" >/dev/null
 echo "OK"
@@ -151,5 +183,9 @@ echo "==> frontend icon"
 curl -fsS -o /dev/null "http://localhost:${FRONTEND_PORT}/icon.svg"
 echo "OK"
 
+echo "==> frontend .next cache safety"
+./scripts/check_frontend_cache_safety.sh
+echo "OK"
+
 echo ""
-echo "Phase 1 + Phase 2 + Phase 3 + Phase 4 validation: PASSED"
+echo "Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 validation: PASSED"

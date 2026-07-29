@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from app.api.deps import get_current_active_user
+from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, clear_settings_cache
 from app.db.session import get_session_factory, init_engine, reset_engine_state
 from app.documents.chunking import ChunkingConfig, ChunkingService
@@ -22,10 +23,13 @@ from app.providers.http import reset_http_client_state
 from app.providers.redis import reset_redis_state
 from app.schemas.health import DependencyCheck, ReadinessChecks, ReadinessResponse
 from app.services.auth import AuthService
+from app.services.chat import ChatService
+from app.services.conversations import ConversationService
 from app.services.documents import DocumentService
 from app.services.embeddings import EmbeddingService
 from app.services.health import HealthService
 from app.services.llm import LLMService
+from app.services.messages import MessageService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 from app.storage.local import LocalFilesystemStorage
@@ -35,6 +39,17 @@ from sqlalchemy import text
 
 from tests.fakes.embeddings import FakeEmbeddingProvider
 from tests.fakes.llm import FakeLLMProvider
+
+
+async def _fake_title_generator(user_content: str, _assistant_content: str) -> str:
+    snippet = user_content.strip().split()
+    return " ".join(snippet[:6]) or "Untitled chat"
+
+
+async def _fake_summarizer(existing: str | None, older_messages: list[Any]) -> str:
+    roles = ",".join(m.role.value for m in older_messages[:5])
+    base = existing or "Summary"
+    return f"{base}|{len(older_messages)}|{roles}"[:500]
 
 
 @pytest.fixture
@@ -116,6 +131,24 @@ def settings(
     monkeypatch.setenv("RAG_MAX_QUERY_CHARACTERS", "2000")
     monkeypatch.setenv("RAG_MAX_CONTEXT_CHARACTERS", "12000")
     monkeypatch.setenv("RAG_CITATION_EXCERPT_CHARACTERS", "280")
+    # Phase 5 — conversations
+    monkeypatch.setenv("CONVERSATION_MAX_HISTORY_MESSAGES", "8")
+    monkeypatch.setenv("CONVERSATION_MAX_HISTORY_CHARACTERS", "4000")
+    monkeypatch.setenv("CONVERSATION_MAX_CONTEXT_CHARACTERS", "8000")
+    monkeypatch.setenv("CONVERSATION_SUMMARY_TRIGGER_MESSAGES", "6")
+    monkeypatch.setenv("CONVERSATION_SUMMARY_MAX_CHARACTERS", "500")
+    monkeypatch.setenv("CONVERSATION_TITLE_MAX_CHARACTERS", "80")
+    monkeypatch.setenv("MESSAGE_MAX_CHARACTERS", "2000")
+    monkeypatch.setenv("MESSAGE_MAX_RESPONSE_TOKENS", "256")
+    monkeypatch.setenv("CHAT_DEFAULT_TEMPERATURE", "0.2")
+    monkeypatch.setenv("CHAT_DEFAULT_TOP_K", "5")
+    monkeypatch.setenv("CONVERSATION_SEARCH_MAX_RESULTS", "25")
+    monkeypatch.setenv("CONVERSATION_LIST_DEFAULT_LIMIT", "20")
+    monkeypatch.setenv("CONVERSATION_LIST_MAX_LIMIT", "50")
+    monkeypatch.setenv("CITATION_EXCERPT_MAX_CHARACTERS", "280")
+    monkeypatch.setenv("CONVERSATION_AUTO_TITLE_ENABLED", "true")
+    monkeypatch.setenv("CONVERSATION_SUMMARY_ENABLED", "true")
+    monkeypatch.setenv("CHAT_GENERAL_MODE_ENABLED", "true")
     clear_settings_cache()
     reset_engine_state()
     reset_redis_state()
@@ -254,12 +287,18 @@ async def db_session(db_engine: None) -> AsyncIterator[Any]:
     factory = get_session_factory()
     async with factory() as session:
         # Isolate integration tests without dropping schema.
+        await session.execute(text("DELETE FROM message_citations"))
+        await session.execute(text("DELETE FROM messages"))
+        await session.execute(text("DELETE FROM conversations"))
         await session.execute(text("DELETE FROM document_chunks"))
         await session.execute(text("DELETE FROM documents"))
         await session.execute(text("DELETE FROM refresh_sessions"))
         await session.execute(text("DELETE FROM users"))
         await session.commit()
         yield session
+        await session.execute(text("DELETE FROM message_citations"))
+        await session.execute(text("DELETE FROM messages"))
+        await session.execute(text("DELETE FROM conversations"))
         await session.execute(text("DELETE FROM document_chunks"))
         await session.execute(text("DELETE FROM documents"))
         await session.execute(text("DELETE FROM refresh_sessions"))
@@ -338,6 +377,21 @@ def _wire_rag_services(
         retrieval_service=retrieval_service,
         llm_service=llm_service,
     )
+    conversation_service = ConversationService(settings=settings)
+    message_service = MessageService(
+        settings=settings,
+        conversation_service=conversation_service,
+    )
+    chat_service = ChatService(
+        settings=settings,
+        conversation_service=conversation_service,
+        message_service=message_service,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service,
+        context_builder=ConversationContextBuilder(settings),
+        title_generator=_fake_title_generator,
+        summarizer=_fake_summarizer,
+    )
 
     application.state.health_service = StubHealthService(settings)
     application.state.auth_service = AuthService.from_settings(settings)
@@ -351,6 +405,9 @@ def _wire_rag_services(
     application.state.embedding_provider = embedding_provider
     application.state.embedding_service = embedding_service
     application.state.rag_service = rag_service
+    application.state.conversation_service = conversation_service
+    application.state.message_service = message_service
+    application.state.chat_service = chat_service
 
 
 @pytest.fixture
@@ -387,6 +444,47 @@ def rag_app(
 async def rag_client(rag_app: FastAPI, db_session: Any) -> AsyncIterator[AsyncClient]:
     _ = db_session
     transport = ASGITransport(app=rag_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={},
+    ) as async_client:
+        yield async_client
+
+
+@pytest.fixture
+def chat_app(
+    settings: Settings,
+    fake_llm_provider: FakeLLMProvider,
+    tmp_path: Path,
+) -> FastAPI:
+    """App for conversation/chat API tests with deterministic fakes."""
+    fake_llm_provider.generate_content = (
+        "Based on the provided context [1], Cortexa is a local-first agent platform."
+    )
+    embedding_provider = FakeEmbeddingProvider(
+        model=settings.ollama_embedding_model,
+        dimension=settings.embedding_dimension,
+        identical_vectors=True,
+    )
+    application = create_app(settings)
+    _wire_rag_services(
+        application,
+        settings=settings,
+        llm_provider=fake_llm_provider,
+        embedding_provider=embedding_provider,
+        storage_root=tmp_path / "chat-documents",
+    )
+    init_engine(settings)
+    application.state.fake_llm_provider = fake_llm_provider
+    application.state.fake_embedding_provider = embedding_provider
+    return application
+
+
+@pytest.fixture
+async def chat_client(chat_app: FastAPI, db_session: Any) -> AsyncIterator[AsyncClient]:
+    _ = db_session
+    transport = ASGITransport(app=chat_app)
     async with AsyncClient(
         transport=transport,
         base_url="http://test",

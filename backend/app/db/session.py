@@ -18,7 +18,14 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def init_engine(settings: Settings) -> AsyncEngine:
-    """Create the async engine from settings. Idempotent for process lifetime."""
+    """Create the async engine from settings. Idempotent for process lifetime.
+
+    The Docker entrypoint applies Alembic migrations *before* Uvicorn starts, so
+    this pool is created against the post-migration schema. Do not keep a long-
+    lived backend process across `alembic upgrade` on a shared database — restart
+    the backend after applying migrations so asyncpg cannot reuse stale type OIDs
+    or prepared statements (e.g. "cache lookup failed for type").
+    """
     global _engine, _session_factory
     if _engine is None:
         database_url = settings.database_url
@@ -27,6 +34,8 @@ def init_engine(settings: Settings) -> AsyncEngine:
         _engine = create_async_engine(
             database_url,
             pool_pre_ping=True,
+            # Avoid caching prepared statements across DDL / type OID changes.
+            connect_args={"statement_cache_size": 0},
             echo=False,
         )
         _session_factory = async_sessionmaker(

@@ -37,6 +37,12 @@ class HealthService:
         )
 
     async def readiness(self) -> tuple[ReadinessResponse, int]:
+        """Infra readiness: DB connectivity, migration head, required tables, Redis.
+
+        Sanitized failure messages only — never connection strings or hostnames.
+        Schema/migration failures surface under the database check so clients
+        keep a stable readiness contract (database + redis).
+        """
         db_ok = False
         db_message: str | None = "Database unavailable"
         redis_ok = False
@@ -72,7 +78,7 @@ class HealthService:
                 ollama=True,
                 auth=True,
                 rag=True,
-                memory=False,
+                memory=True,
                 tools=False,
                 voice=False,
             ),

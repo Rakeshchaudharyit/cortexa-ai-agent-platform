@@ -158,3 +158,132 @@ export type EmbeddingStatusResponse = {
 export type ApiResult<T> =
   | { ok: true; data: T; status: number }
   | { ok: false; error: string; status: number | null };
+
+// ─── Phase 5: Conversations ───────────────────────────────────────────────────
+
+export type ConversationStatus = "active" | "archived";
+
+export type ConversationSummary = {
+  id: string;
+  title: string;
+  status: ConversationStatus;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string | null;
+  archived_at: string | null;
+  title_is_auto: boolean;
+  summary_preview: string | null;
+};
+
+export type MessageCitation = {
+  id: string;
+  citation_index: number;
+  citation_id: string;
+  document_id: string | null;
+  chunk_id: string | null;
+  filename: string;
+  page_number: number | null;
+  chunk_index: number;
+  excerpt: string;
+  similarity_score: number | null;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  status: "pending" | "streaming" | "complete" | "failed";
+  sequence_number: number;
+  is_active: boolean;
+  grounded: boolean | null;
+  model: string | null;
+  provider: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number | null;
+  finish_reason: string | null;
+  error_code: string | null;
+  regenerated_from_message_id: string | null;
+  edited_from_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+  citations: MessageCitation[];
+};
+
+export type ConversationDetail = {
+  id: string;
+  title: string;
+  status: ConversationStatus;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string | null;
+  archived_at: string | null;
+  title_is_auto: boolean;
+  summary: string | null;
+  default_document_scope: string[] | null;
+  messages: ConversationMessage[];
+  has_more_messages: boolean;
+};
+
+export type ConversationListResponse = {
+  items: ConversationSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type CreateMessageResponse = {
+  conversation: ConversationSummary;
+  user_message: ConversationMessage;
+  assistant_message: ConversationMessage;
+};
+
+export type UsageSummaryResponse = {
+  conversations: number;
+  active_conversations: number;
+  messages: number;
+  user_messages: number;
+  assistant_messages: number;
+  documents: number;
+  known_prompt_tokens: number;
+  known_completion_tokens: number;
+  known_total_tokens: number;
+  average_latency_ms: number | null;
+};
+
+// ─── SSE streaming event types ────────────────────────────────────────────────
+
+export type SSEStartData = {
+  conversation_id: string;
+  user_message_id: string;
+  assistant_message_id: string;
+};
+
+export type SSEDeltaData = { content: string };
+
+export type SSECitationData = { citation: MessageCitation };
+
+export type SSEMetadataData = {
+  model: string | null;
+  provider: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number | null;
+};
+
+export type SSECompleteData = { message: ConversationMessage };
+
+export type SSEErrorData = { error: { code: string; message: string } };
+
+export type SSEEvent =
+  | { event: "start"; data: SSEStartData }
+  | { event: "delta"; data: SSEDeltaData }
+  | { event: "citation"; data: SSECitationData }
+  | { event: "metadata"; data: SSEMetadataData }
+  | { event: "complete"; data: SSECompleteData }
+  | { event: "error"; data: SSEErrorData };

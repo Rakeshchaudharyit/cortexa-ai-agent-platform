@@ -100,7 +100,7 @@ Implement production-quality authentication and user foundation with JWT access 
 
 ## Phase 4 — Documents, Embeddings & RAG
 
-**Status:** Current
+**Status:** Complete
 
 ### Objective
 
@@ -121,39 +121,57 @@ Deliver private document ingestion, local embeddings, pgvector retrieval, and gr
 
 - Async ingestion workers / background queues
 - OCR for scanned PDFs
-- Product chat UI / conversation history
+- Persistent conversation product UI (deferred to Phase 5)
 - Memory / tools / voice
 - Organization or tenant management
 - Automatic model downloads
 
 ---
 
-## Phase 5 — Frontend Application Expansion
+## Phase 5 — Persistent Conversations & Multi-Turn RAG Chat
+
+**Status:** Complete
 
 ### Objective
 
-Expand the status UI toward a durable application shell without fabricating dashboard metrics.
+Deliver user-owned conversation history, multi-turn RAG chat (streaming and non-streaming), edit/regenerate flows, rolling summaries, and an authenticated `/chat` frontend — without cross-conversation memory or agent tools.
+
+### Deliverables
+
+- `Conversation`, `Message`, `MessageCitation` models + Alembic migration `0004_phase5_conversations`
+- Conversation CRUD, archive/unarchive, hard delete, title search
+- `POST /messages`, `POST /messages/stream` (SSE with citation/metadata events)
+- Context builder with explicit trim priority; optional rolling summary
+- Document scope policy (`document_ids` omitted / `[]` / explicit list)
+- No-context fallback aligned with Phase 4 RAG
+- Edit latest user message; regenerate latest assistant; `client_request_id` idempotency
+- `GET /api/v1/usage/summary`
+- Next.js `/chat` UI + `frontend/services/conversations.ts`
+- Tests and [CONVERSATIONS.md](CONVERSATIONS.md)
 
 ### Exclusions
 
-- Full enterprise analytics dashboard
-- Direct browser calls to Ollama
+- Cross-conversation or profile memory
+- Agent tools / voice
+- Organization or tenant management
+- Async ingestion workers
+- Automatic model downloads
 
 ---
 
-## Phase 6 — Database Models, Migrations & Repositories (domain expansion)
+## Phase 6 — Domain & Platform Expansion
 
 ### Objective
 
-Expand domain persistence beyond auth/documents with additional repositories as product features arrive.
+Expand persistence and services for upcoming agent, memory, and operator features (repositories, admin primitives) without duplicating Phase 5 chat.
 
 ---
 
-## Phase 7 — Chat / Agent Core Services
+## Phase 7 — Agent Orchestration & Tools
 
 ### Objective
 
-Deliver conversational and agent orchestration with streaming and persisted turns.
+Structured tool registration, permission gating, and audited execution on top of the Phase 5 chat core.
 
 ---
 
@@ -161,7 +179,7 @@ Deliver conversational and agent orchestration with streaming and persisted turn
 
 ### Objective
 
-Short-term and long-term memory with privacy controls and retention policies.
+Short-term and long-term memory with privacy controls and retention policies (beyond per-conversation rolling summaries).
 
 ---
 
@@ -169,7 +187,7 @@ Short-term and long-term memory with privacy controls and retention policies.
 
 ### Objective
 
-Structured tool registration, permission gating, and audited execution.
+Extend Phase 7 tool framework with richer policies, composable agents, and observability.
 
 ---
 

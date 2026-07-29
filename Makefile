@@ -146,6 +146,8 @@ validate: compose-config secrets-check
 
 clean:
 	rm -rf backend/.pytest_cache backend/.mypy_cache backend/.ruff_cache backend/**/__pycache__
+	# Host-side full tree only. Inside Docker, stop frontend before wiping the
+	# named volume .next (never delete selected files under .next/cache live).
 	rm -rf frontend/.next frontend/coverage frontend/node_modules/.cache
 	find backend -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
 	@echo "clean: OK"

@@ -16,8 +16,11 @@ from app.db.session import get_db_session
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.auth import AuthService
+from app.services.chat import ChatService
+from app.services.conversations import ConversationService
 from app.services.documents import DocumentService
 from app.services.embeddings import EmbeddingService
+from app.services.messages import MessageService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
 
@@ -68,6 +71,27 @@ def get_embedding_service(request: Request) -> EmbeddingService:
     service = getattr(request.app.state, "embedding_service", None)
     if not isinstance(service, EmbeddingService):
         raise RuntimeError("Embedding service is not configured")
+    return service
+
+
+def get_conversation_service(request: Request) -> ConversationService:
+    service = getattr(request.app.state, "conversation_service", None)
+    if not isinstance(service, ConversationService):
+        raise RuntimeError("Conversation service is not configured")
+    return service
+
+
+def get_chat_service(request: Request) -> ChatService:
+    service = getattr(request.app.state, "chat_service", None)
+    if not isinstance(service, ChatService):
+        raise RuntimeError("Chat service is not configured")
+    return service
+
+
+def get_message_service(request: Request) -> MessageService:
+    service = getattr(request.app.state, "message_service", None)
+    if not isinstance(service, MessageService):
+        raise RuntimeError("Message service is not configured")
     return service
 
 
@@ -126,3 +150,6 @@ DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
 RetrievalServiceDep = Annotated[RetrievalService, Depends(get_retrieval_service)]
 RagServiceDep = Annotated[RagService, Depends(get_rag_service)]
 EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)]
+ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
+ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
+MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]

@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
 
 export function AuthHeader() {
   const { status, user, logout } = useAuth();
+  const pathname = usePathname();
 
   return (
     <div
@@ -31,16 +33,29 @@ export function AuthHeader() {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {status === "authenticated" ? (
-          <button
-            type="button"
-            onClick={() => {
-              void logout();
-            }}
-            className="rounded-lg bg-slate-500/20 px-3 py-2 text-sm font-medium text-slate-100 ring-1 ring-slate-400/30 transition hover:bg-slate-500/30"
-            data-testid="logout-button"
-          >
-            Log out
-          </button>
+          <>
+            <Link
+              href="/chat"
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition ring-1 ${
+                pathname?.startsWith("/chat")
+                  ? "bg-cyan-500/25 text-cyan-100 ring-cyan-400/40"
+                  : "bg-slate-500/20 text-slate-100 ring-slate-400/30 hover:bg-slate-500/30"
+              }`}
+              data-testid="chat-link"
+            >
+              Chat
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                void logout();
+              }}
+              className="rounded-lg bg-slate-500/20 px-3 py-2 text-sm font-medium text-slate-100 ring-1 ring-slate-400/30 transition hover:bg-slate-500/30"
+              data-testid="logout-button"
+            >
+              Log out
+            </button>
+          </>
         ) : (
           <>
             <Link

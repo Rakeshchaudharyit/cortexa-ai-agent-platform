@@ -126,6 +126,8 @@ class LLMStatusResponse(BaseModel):
 class StreamEventType(str, Enum):
     start = "start"
     delta = "delta"
+    citation = "citation"
+    metadata = "metadata"
     complete = "complete"
     error = "error"
 

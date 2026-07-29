@@ -38,6 +38,24 @@ Phase 1 local credentials:
 
 ---
 
+## Phase 5 Security Posture
+
+Implemented on top of Phase 4:
+
+- Conversation and message APIs require an authenticated active user
+- Conversations, messages, and message citations are scoped by **`user_id`**; cross-user IDs return `404`
+- Archived conversations reject new messages until unarchived
+- Hard delete removes conversation data permanently (CASCADE)
+- Chat retrieval reuses Phase 4 document ownership isolation
+- Optional `client_request_id` idempotency reduces duplicate sends on retries (per user + conversation)
+
+Still deferred:
+
+- Production rate-limit enforcement on conversation send/stream endpoints
+- Cross-conversation memory and shared org threads
+
+---
+
 ## Phase 4 Security Posture
 
 Implemented on top of Phase 1–3:
@@ -68,7 +86,7 @@ Still deferred:
 
 ## Prompt Injection / Tools / Memory
 
-Documented for later phases. Phase 4 uses grounded system prompts and retrieval scoping; Phase 2–3 also enforce input size/role limits.
+Documented for later phases. Phase 4–5 use grounded system prompts and retrieval scoping; Phase 2–3 also enforce input size/role limits. Conversation summaries and titles are generated via the same local LLM with bounded prompts.
 
 ---
 

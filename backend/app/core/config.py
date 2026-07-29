@@ -250,6 +250,104 @@ class Settings(BaseSettings):
         alias="RAG_CITATION_EXCERPT_CHARACTERS",
     )
 
+    # Conversations / multi-turn chat (Phase 5)
+    conversation_max_history_messages: int = Field(
+        default=20,
+        ge=2,
+        le=200,
+        alias="CONVERSATION_MAX_HISTORY_MESSAGES",
+    )
+    conversation_max_history_characters: int = Field(
+        default=16_000,
+        ge=500,
+        le=500_000,
+        alias="CONVERSATION_MAX_HISTORY_CHARACTERS",
+    )
+    conversation_max_context_characters: int = Field(
+        default=24_000,
+        ge=1_000,
+        le=500_000,
+        alias="CONVERSATION_MAX_CONTEXT_CHARACTERS",
+    )
+    conversation_summary_trigger_messages: int = Field(
+        default=12,
+        ge=4,
+        le=500,
+        alias="CONVERSATION_SUMMARY_TRIGGER_MESSAGES",
+    )
+    conversation_summary_max_characters: int = Field(
+        default=1_500,
+        ge=100,
+        le=20_000,
+        alias="CONVERSATION_SUMMARY_MAX_CHARACTERS",
+    )
+    conversation_title_max_characters: int = Field(
+        default=80,
+        ge=8,
+        le=200,
+        alias="CONVERSATION_TITLE_MAX_CHARACTERS",
+    )
+    message_max_characters: int = Field(
+        default=8_000,
+        ge=100,
+        le=100_000,
+        alias="MESSAGE_MAX_CHARACTERS",
+    )
+    message_max_response_tokens: int = Field(
+        default=2_048,
+        ge=64,
+        le=8_192,
+        alias="MESSAGE_MAX_RESPONSE_TOKENS",
+    )
+    chat_default_temperature: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=2.0,
+        alias="CHAT_DEFAULT_TEMPERATURE",
+    )
+    chat_default_top_k: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        alias="CHAT_DEFAULT_TOP_K",
+    )
+    conversation_search_max_results: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        alias="CONVERSATION_SEARCH_MAX_RESULTS",
+    )
+    conversation_list_default_limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        alias="CONVERSATION_LIST_DEFAULT_LIMIT",
+    )
+    conversation_list_max_limit: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        alias="CONVERSATION_LIST_MAX_LIMIT",
+    )
+    citation_excerpt_max_characters: int = Field(
+        default=280,
+        ge=40,
+        le=2_000,
+        alias="CITATION_EXCERPT_MAX_CHARACTERS",
+    )
+    conversation_auto_title_enabled: bool = Field(
+        default=True,
+        alias="CONVERSATION_AUTO_TITLE_ENABLED",
+    )
+    conversation_summary_enabled: bool = Field(
+        default=True,
+        alias="CONVERSATION_SUMMARY_ENABLED",
+    )
+    chat_general_mode_enabled: bool = Field(
+        default=True,
+        alias="CHAT_GENERAL_MODE_ENABLED",
+    )
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:
@@ -400,6 +498,14 @@ class Settings(BaseSettings):
             raise ValueError("CHUNK_OVERLAP_CHARACTERS must be less than CHUNK_SIZE_CHARACTERS")
         if self.rag_default_top_k > self.rag_max_top_k:
             raise ValueError("RAG_DEFAULT_TOP_K cannot exceed RAG_MAX_TOP_K")
+        if self.conversation_list_default_limit > self.conversation_list_max_limit:
+            raise ValueError(
+                "CONVERSATION_LIST_DEFAULT_LIMIT cannot exceed CONVERSATION_LIST_MAX_LIMIT"
+            )
+        if self.chat_default_top_k > self.rag_max_top_k:
+            raise ValueError("CHAT_DEFAULT_TOP_K cannot exceed RAG_MAX_TOP_K")
+        if self.message_max_response_tokens > self.llm_max_output_tokens:
+            raise ValueError("MESSAGE_MAX_RESPONSE_TOKENS cannot exceed LLM_MAX_OUTPUT_TOKENS")
         if self.embedding_dimension != 768 and self.ollama_embedding_model == "nomic-embed-text":
             raise ValueError(
                 "EMBEDDING_DIMENSION must be 768 when OLLAMA_EMBEDDING_MODEL is nomic-embed-text"
@@ -463,6 +569,23 @@ class Settings(BaseSettings):
             "rag_default_top_k": self.rag_default_top_k,
             "rag_max_top_k": self.rag_max_top_k,
             "rag_min_similarity": self.rag_min_similarity,
+            "conversation_max_history_messages": self.conversation_max_history_messages,
+            "conversation_max_history_characters": self.conversation_max_history_characters,
+            "conversation_max_context_characters": self.conversation_max_context_characters,
+            "conversation_summary_trigger_messages": self.conversation_summary_trigger_messages,
+            "conversation_summary_max_characters": self.conversation_summary_max_characters,
+            "conversation_title_max_characters": self.conversation_title_max_characters,
+            "message_max_characters": self.message_max_characters,
+            "message_max_response_tokens": self.message_max_response_tokens,
+            "chat_default_temperature": self.chat_default_temperature,
+            "chat_default_top_k": self.chat_default_top_k,
+            "conversation_search_max_results": self.conversation_search_max_results,
+            "conversation_list_default_limit": self.conversation_list_default_limit,
+            "conversation_list_max_limit": self.conversation_list_max_limit,
+            "citation_excerpt_max_characters": self.citation_excerpt_max_characters,
+            "conversation_auto_title_enabled": self.conversation_auto_title_enabled,
+            "conversation_summary_enabled": self.conversation_summary_enabled,
+            "chat_general_mode_enabled": self.chat_general_mode_enabled,
         }
 
 

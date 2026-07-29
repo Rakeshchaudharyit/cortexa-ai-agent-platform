@@ -88,7 +88,7 @@ async def test_system_info_ollama_feature_enabled(client: AsyncClient, app: Fast
         "ollama": True,
         "auth": True,
         "rag": True,
-        "memory": False,
+        "memory": True,
         "tools": False,
         "voice": False,
     }

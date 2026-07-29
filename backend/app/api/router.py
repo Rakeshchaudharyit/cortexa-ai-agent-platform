@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, documents, embeddings, health, llm, rag, system
+from app.api.routes import auth, conversations, documents, embeddings, health, llm, rag, system
 from app.core.config import Settings
 
 
@@ -17,6 +17,8 @@ def build_api_router(settings: Settings) -> APIRouter:
     api.include_router(documents.router)
     api.include_router(rag.router)
     api.include_router(embeddings.router)
+    api.include_router(conversations.router)
+    api.include_router(conversations.usage_router)
     return api
 
 

@@ -31,7 +31,13 @@ if [ ! -f /app/node_modules/.cortexa_deps_ready ]; then
   touch /app/node_modules/.cortexa_deps_ready
 fi
 
-rm -rf /app/.next/*
+# Wipe the entire .next tree before Next.js starts. Never delete selected
+# files under .next/cache while a Next process is running (causes ENOENT on
+# webpack pack files). Named volume mount: clear children, keep mount point.
+if [ -d /app/.next ]; then
+  find /app/.next -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+fi
+mkdir -p /app/.next
 
 chown -R cortexa:cortexa /app /home/cortexa /app/node_modules /app/.next
 exec gosu cortexa "$@"

@@ -8,7 +8,15 @@ from logging.config import fileConfig
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models import Document, DocumentChunk, RefreshSession, User  # noqa: F401
+from app.models import (  # noqa: F401
+    Conversation,
+    Document,
+    DocumentChunk,
+    Message,
+    MessageCitation,
+    RefreshSession,
+    User,
+)
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -50,10 +58,13 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     configuration = config.get_section(config.config_ini_section) or {}
     configuration["sqlalchemy.url"] = get_url()
+    # NullPool + disabled statement cache: migration processes must not retain
+    # connections or prepared statements across DDL / enum OID changes.
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"statement_cache_size": 0},
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

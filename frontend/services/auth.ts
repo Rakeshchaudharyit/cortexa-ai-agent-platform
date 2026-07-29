@@ -83,8 +83,9 @@ export async function authenticatedGet<T>(path: string): Promise<AuthResult<T>> 
 export async function authenticatedPost<T>(
   path: string,
   json?: unknown,
+  acceptStatuses?: number[],
 ): Promise<AuthResult<T>> {
-  return authenticatedRequest<T>("POST", path, { json });
+  return authenticatedRequest<T>("POST", path, { json, acceptStatuses });
 }
 
 export async function authenticatedDelete(

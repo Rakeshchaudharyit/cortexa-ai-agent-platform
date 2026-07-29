@@ -1,6 +1,6 @@
-# RAG & Documents (Phase 4)
+# RAG & Documents (Phase 4+)
 
-Cortexa Phase 4 adds private document ingestion, local embeddings (Ollama `nomic-embed-text`), pgvector storage, and grounded retrieval-augmented answers with citations.
+Cortexa Phase 4 adds private document ingestion, local embeddings (Ollama `nomic-embed-text`), pgvector storage, and grounded retrieval-augmented answers with citations. **Phase 5** reuses the same retrieval stack inside **multi-turn conversations** (`POST /api/v1/conversations/.../messages`); see [CONVERSATIONS.md](CONVERSATIONS.md) for scope and no-context rules in chat.
 
 ## Capabilities
 
@@ -14,6 +14,7 @@ Cortexa Phase 4 adds private document ingestion, local embeddings (Ollama `nomic
 | Embeddings | Ollama embedding model (default `nomic-embed-text`, 768-dim) |
 | Retrieval | pgvector cosine similarity + `RAG_MIN_SIMILARITY` threshold |
 | RAG | `POST /api/v1/rag/query` — grounded answer + citation cards; no LLM call when no context |
+| Multi-turn RAG chat | `POST /api/v1/conversations/{id}/messages` — same retrieval + no-context policy; persists citations on the assistant message |
 | Status | Public `GET /api/v1/embeddings/status` (does not gate `/ready`) |
 
 ## Supported formats & limits
@@ -40,6 +41,18 @@ List/detail/delete/RAG retrieval only see the caller’s documents. Filtering RA
 ## Citation behavior
 
 When retrieval returns chunks, the LLM is prompted to answer only from context and cite with markers like `[1]`. The API returns structured `citations` (`citation_id`, filename, excerpt, similarity, optional page). When no chunks pass the similarity threshold (or the user has no ready documents), Cortexa returns a fixed no-context answer, **empty citations**, `grounded=false`, and **does not call** the LLM.
+
+### Document scope in conversations
+
+On conversation messages (and optional create/regenerate bodies), `document_ids` controls retrieval:
+
+| Value | Retrieval |
+| --- | --- |
+| Omitted | All owned **ready** documents |
+| `[]` | No retrieval — general chat when `CHAT_GENERAL_MODE_ENABLED=true` |
+| Non-empty list | Only those document IDs (owned + ready) |
+
+The no-context fallback applies when retrieval is attempted but returns zero chunks (not in general-chat mode).
 
 ## Manual embedding model pull
 
@@ -99,17 +112,17 @@ rm -f "$COOKIE_JAR" /tmp/cortexa-auth.json
 
 ## Frontend
 
-When signed in, the home page shows a **Documents & grounded Q&A** panel: upload, list/delete, and ask questions with citation display. Access tokens remain **memory-only** (not `localStorage`).
+When signed in, the home page shows a **Documents & grounded Q&A** panel: upload, list/delete, and ask questions with citation display. **Phase 5** adds **`/chat`** for persistent multi-turn threads with streaming and citation cards. Access tokens remain **memory-only** (not `localStorage`).
 
 ## Configuration
 
 See `.env.example` for `DOCUMENT_*`, `CHUNK_*`, `EMBEDDING_*`, and `RAG_*` settings.
 
-## Known limitations (Phase 4)
+## Known limitations (Phase 4–5)
 
 - Synchronous ingest only — large files block the request (5 MiB cap mitigates this).
 - No OCR, hybrid keyword search, or reranking.
-- No multi-turn conversation memory or shared/org documents.
+- No cross-conversation memory, org-shared documents, or profile memory (conversation summary is per-thread only).
 - Dense embeddings (e.g. `nomic-embed-text`) can assign non-trivial cosine similarity to loosely related text on tiny corpora; raise `RAG_MIN_SIMILARITY` (default `0.4`) if unrelated questions still retrieve chunks. Automated tests cover the strict no-context fallback path with fake embeddings.
 - Document storage volume must be writable by the backend app user; the image entrypoint corrects ownership on start.
 - Embedding and chat models are not auto-pulled — pull them manually before real RAG use.

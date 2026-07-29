@@ -1,0 +1,2 @@
+Cortexa is a local-first AI agent platform.
+It supports private document ingestion and grounded answers.

@@ -38,9 +38,9 @@ Phase 1 local credentials:
 
 ---
 
-## Phase 3 Security Posture
+## Phase 4 Security Posture
 
-Implemented on top of Phase 1–2:
+Implemented on top of Phase 1–3:
 
 - Argon2id password hashing; passwords never logged or returned
 - Short-lived JWT access tokens (`type=access`, explicit algorithm allow-list)
@@ -48,23 +48,27 @@ Implemented on top of Phase 1–2:
 - Refresh rotation + family revocation on reuse
 - HttpOnly refresh cookies; access tokens stay in browser memory
 - Disabled accounts rejected for login, refresh, and bearer access
-- LLM generate/stream require an authenticated active user
+- LLM generate/stream and document/RAG APIs require an authenticated active user
+- Document ownership isolation (list/detail/delete/retrieval scoped by `user_id`)
+- Upload validation: extension allow-list, size cap, content sniffing, path-safe storage keys
+- Local storage rejects path traversal and uses atomic writes
+- Duplicate rejection by per-user content checksum
 - CORS credentials limited to explicit approved origins
-- Structured auth errors without SQL/crypto leakage
+- Structured errors without SQL/crypto/path leakage
 
 Still deferred:
 
-- Production rate-limit enforcement (login/register/refresh must be limited in production)
+- Production rate-limit enforcement (login/register/refresh/upload must be limited in production)
 - Email verification / password-reset delivery
 - Admin tooling and org/tenant isolation
 - Tool permission model
-- Prompt-injection mitigations beyond input size limits
+- Advanced prompt-injection mitigations beyond grounded prompts + size limits
 
 ---
 
 ## Prompt Injection / Tools / Memory
 
-Documented for later phases. Phase 2 enforces input size/role limits only.
+Documented for later phases. Phase 4 uses grounded system prompts and retrieval scoping; Phase 2–3 also enforce input size/role limits.
 
 ---
 

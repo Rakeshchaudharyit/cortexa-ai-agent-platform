@@ -1,4 +1,4 @@
-"""Shared database enums for authentication and users."""
+"""Shared database enums for authentication, users, and documents."""
 
 from __future__ import annotations
 
@@ -17,3 +17,12 @@ class UserStatus(StrEnum):
 
     active = "active"
     disabled = "disabled"
+
+
+class DocumentStatus(StrEnum):
+    """Document ingestion lifecycle."""
+
+    pending = "pending"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"

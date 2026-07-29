@@ -1,15 +1,22 @@
-# Cortexa Frontend — Phase 1
+# Cortexa Frontend — Phase 4
 
-See the repository root [README.md](../README.md) for setup and validation.
+See the repository root [README.md](../README.md) and [docs/RAG.md](../docs/RAG.md) for setup and document/RAG usage.
+
+## Surfaces
+
+- System status (health, readiness, LLM, feature flags)
+- Auth (`/login`, `/register`, header session controls)
+- Authenticated **Documents & grounded Q&A** panel on the home page
 
 ## API fetching decision
 
-Phase 1 uses **client-side fetching** for `/health`, `/ready`, and `/api/v1/system/info`.
+Uses **client-side fetching** for backend APIs.
 
 Rationale:
-- Browser calls use `NEXT_PUBLIC_API_BASE_URL` (host-reachable `http://localhost:8000`).
-- Server-side fetch inside the frontend container would need a different internal URL (`http://backend:8000`), which complicates local Compose without adding dual config in Phase 1.
+- Browser calls use `NEXT_PUBLIC_API_BASE_URL` (host-reachable `http://localhost:8000` or remapped ports such as `18000`).
+- Server-side fetch inside the frontend container would need a different internal URL (`http://backend:8000`).
 - Client-side fetching keeps unavailable/offline states honest and avoids SSR crashes when the backend is down.
+- Access tokens remain in memory only; refresh uses HttpOnly cookies (`credentials: "include"`).
 
 ## Docker development notes
 

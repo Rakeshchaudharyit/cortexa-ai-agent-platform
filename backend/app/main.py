@@ -100,8 +100,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved.app_name,
         version=resolved.app_version,
         description=(
-            "Cortexa AI Agent Platform API — Phase 3 authentication and user foundation. "
-            "RAG, memory, tools, and voice are not available yet."
+            "Cortexa AI Agent Platform API — Phase 4 RAG foundation with authenticated "
+            "document ingestion, embeddings, retrieval, and grounded answers. "
+            "Memory, tools, and voice are not available yet."
         ),
         lifespan=lifespan,
         docs_url="/docs" if not resolved.is_production else None,

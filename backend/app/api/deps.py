@@ -1,4 +1,4 @@
-"""Authentication FastAPI dependencies."""
+"""Authentication and Phase 4 service FastAPI dependencies."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from app.db.session import get_db_session
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.auth import AuthService
+from app.services.documents import DocumentService
+from app.services.embeddings import EmbeddingService
+from app.services.rag import RagService
+from app.services.retrieval import RetrievalService
 
 logger = logging.getLogger("cortexa.auth.deps")
 
@@ -37,6 +41,34 @@ def get_auth_service(request: Request) -> AuthService:
     created = AuthService.from_settings(settings)
     request.app.state.auth_service = created
     return created
+
+
+def get_document_service(request: Request) -> DocumentService:
+    service = getattr(request.app.state, "document_service", None)
+    if not isinstance(service, DocumentService):
+        raise RuntimeError("Document service is not configured")
+    return service
+
+
+def get_retrieval_service(request: Request) -> RetrievalService:
+    service = getattr(request.app.state, "retrieval_service", None)
+    if not isinstance(service, RetrievalService):
+        raise RuntimeError("Retrieval service is not configured")
+    return service
+
+
+def get_rag_service(request: Request) -> RagService:
+    service = getattr(request.app.state, "rag_service", None)
+    if not isinstance(service, RagService):
+        raise RuntimeError("RAG service is not configured")
+    return service
+
+
+def get_embedding_service(request: Request) -> EmbeddingService:
+    service = getattr(request.app.state, "embedding_service", None)
+    if not isinstance(service, EmbeddingService):
+        raise RuntimeError("Embedding service is not configured")
+    return service
 
 
 async def get_current_user(
@@ -90,3 +122,7 @@ CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
+RetrievalServiceDep = Annotated[RetrievalService, Depends(get_retrieval_service)]
+RagServiceDep = Annotated[RagService, Depends(get_rag_service)]
+EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)]

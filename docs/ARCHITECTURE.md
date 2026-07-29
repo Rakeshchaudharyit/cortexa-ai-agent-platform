@@ -2,7 +2,7 @@
 
 Cortexa AI Agent Platform — system architecture.
 
-Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. RAG, memory, tools, and voice remain unimplemented.
+Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. Phase 4 adds documents, embeddings (pgvector), and grounded RAG. Memory, tools, and voice remain unimplemented.
 
 ---
 
@@ -17,18 +17,19 @@ Phase 0 defined the design contract. Phase 1 delivered the application foundatio
 
 ---
 
-## Phase 3 Runtime Stack
+## Phase 4 Runtime Stack
 
 ```
-Frontend (Next.js status + auth screens)
+Frontend (Next.js status + auth + documents panel)
         ↓  HTTP + credentials (cookies) / Bearer access token
 FastAPI API routes
         ↓
-Auth / Health / system / LLM services
+Auth / Health / system / LLM / Documents / RAG / Embeddings services
         ↓
-db/ models (users, refresh_sessions) + providers/redis + llm/providers/ollama
+db/ models (users, refresh_sessions, documents, document_chunks)
++ storage/local + documents/* + embeddings/* + llm/providers/ollama
         ↓
-PostgreSQL 17  |  Redis 7.4  |  Ollama
+PostgreSQL 17 + pgvector  |  Redis 7.4  |  Ollama (chat + embeddings)
 ```
 
 Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host port `11435` is for optional host tooling only and is never hardcoded in application logic.
@@ -48,27 +49,31 @@ Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host 
 
 ---
 
-## Backend Package Layout (Phase 3)
+## Backend Package Layout (Phase 4)
 
 ```text
 backend/
 ├── app/
-│   ├── api/routes/     # health, system, llm, auth
-│   ├── api/deps.py     # get_current_user / active user / require_role
+│   ├── api/routes/     # health, system, llm, auth, documents, rag, embeddings
+│   ├── api/deps.py     # auth + document/rag/embedding deps
 │   ├── core/           # config, exceptions, logging, lifespan
 │   ├── db/             # base, session, health
-│   ├── models/         # User, RefreshSession
+│   ├── models/         # User, RefreshSession, Document, DocumentChunk
 │   ├── security/       # passwords (Argon2id), JWT + refresh helpers
-│   ├── llm/            # provider protocol, factory, Ollama
+│   ├── documents/      # validation, extraction, chunking, schemas
+│   ├── embeddings/     # provider protocol, factory, Ollama embeddings
+│   ├── storage/        # local filesystem object storage
+│   ├── llm/            # provider protocol, factory, Ollama chat
 │   ├── providers/      # redis, shared httpx client
 │   ├── schemas/        # Pydantic DTOs
-│   ├── services/       # health + llm + auth services
+│   ├── services/       # health, llm, auth, documents, retrieval, rag, embeddings
 │   └── main.py
 ├── alembic/
 └── tests/
 ```
 
-Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
+Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).  
+Documents / RAG details: [RAG.md](RAG.md).
 
 ---
 
@@ -138,6 +143,6 @@ All errors use the Phase 1 envelope: `{error:{code,message,details}, request_id}
 
 ---
 
-## Frontend Architecture (Phase 2)
+## Frontend Architecture (Phase 4)
 
-The Phase 1 status page remains. Phase 2 adds a compact **Local LLM status** section that reads `/api/v1/llm/status` only. No chat composer, history, RAG, memory, tools, or voice controls.
+The status page remains (health, readiness, LLM, feature flags). Phase 3 auth screens remain. Phase 4 adds an authenticated **Documents & grounded Q&A** panel (upload, list/delete, RAG query with citations). No product chat composer, conversation history, memory, tools, or voice controls.

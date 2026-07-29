@@ -64,7 +64,9 @@ if docker compose ps --status running frontend 2>/dev/null | grep -q frontend; t
   echo "==> frontend test (docker)"
   docker compose exec -T -u cortexa frontend npm test -- --run
   echo "==> clear Next.js build cache (avoid stale .next collisions)"
-  docker compose exec -T -u root frontend sh -c 'rm -rf /app/.next/cache /app/.next/server /app/.next/static /app/.next/types 2>/dev/null || true'
+  # Clear the full .next tree — partial clears leave manifests that break
+  # metadata routes such as /icon.svg during `next build`.
+  docker compose exec -T -u root frontend sh -c 'rm -rf /app/.next/* 2>/dev/null || true'
   echo "==> frontend build (docker)"
   docker compose exec -T -u cortexa frontend npm run build
   echo "==> restart frontend after production build (restore next dev)"
@@ -95,6 +97,10 @@ echo "OK"
 
 echo "==> llm status endpoint"
 curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/llm/status" >/dev/null
+echo "OK"
+
+echo "==> embeddings status endpoint"
+curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/embeddings/status" >/dev/null
 echo "OK"
 
 echo "==> auth register/login/me smoke"
@@ -146,4 +152,4 @@ curl -fsS -o /dev/null "http://localhost:${FRONTEND_PORT}/icon.svg"
 echo "OK"
 
 echo ""
-echo "Phase 1 + Phase 2 + Phase 3 validation: PASSED"
+echo "Phase 1 + Phase 2 + Phase 3 + Phase 4 validation: PASSED"

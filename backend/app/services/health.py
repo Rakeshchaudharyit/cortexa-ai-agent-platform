@@ -71,7 +71,7 @@ class HealthService:
             features=FeatureFlags(
                 ollama=True,
                 auth=True,
-                rag=False,
+                rag=True,
                 memory=False,
                 tools=False,
                 voice=False,

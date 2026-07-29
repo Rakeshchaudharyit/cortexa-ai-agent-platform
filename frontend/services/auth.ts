@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiRequest } from "@/lib/api";
 import { clearAccessToken, getAccessToken, setAccessToken } from "@/lib/auth-token";
 import type {
   AuthTokenResponse,
@@ -7,6 +7,10 @@ import type {
   RegisterRequest,
   UserPublic,
 } from "@/types/api";
+
+type AuthResult<T> =
+  | { ok: true; data: T; status: number }
+  | { ok: false; error: string; status: number | null };
 
 export async function registerUser(
   body: RegisterRequest,
@@ -72,30 +76,53 @@ export async function fetchCurrentUser(): Promise<
   });
 }
 
-export async function authenticatedGet<T>(
-  path: string,
-): Promise<{ ok: true; data: T; status: number } | { ok: false; error: string; status: number | null }> {
+export async function authenticatedGet<T>(path: string): Promise<AuthResult<T>> {
   return authenticatedRequest<T>("GET", path);
 }
 
 export async function authenticatedPost<T>(
   path: string,
   json?: unknown,
-): Promise<{ ok: true; data: T; status: number } | { ok: false; error: string; status: number | null }> {
-  return authenticatedRequest<T>("POST", path, json);
+): Promise<AuthResult<T>> {
+  return authenticatedRequest<T>("POST", path, { json });
+}
+
+export async function authenticatedDelete(
+  path: string,
+): Promise<AuthResult<null>> {
+  return authenticatedRequest<null>("DELETE", path, {
+    acceptStatuses: [204],
+  });
+}
+
+export async function authenticatedUpload<T>(
+  path: string,
+  formData: FormData,
+): Promise<AuthResult<T>> {
+  return authenticatedRequest<T>("POST", path, {
+    formData,
+    acceptStatuses: [200, 201],
+  });
 }
 
 async function authenticatedRequest<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
-  json?: unknown,
-): Promise<{ ok: true; data: T; status: number } | { ok: false; error: string; status: number | null }> {
-  const { apiRequest } = await import("@/lib/api");
-  const first = await apiRequest<T>(method, path, {
-    json,
+  options: {
+    json?: unknown;
+    formData?: FormData;
+    acceptStatuses?: number[];
+  } = {},
+): Promise<AuthResult<T>> {
+  const requestOptions = {
+    json: options.json,
+    formData: options.formData,
+    acceptStatuses: options.acceptStatuses,
     accessToken: getAccessToken(),
-    credentials: "include",
-  });
+    credentials: "include" as const,
+  };
+
+  const first = await apiRequest<T>(method, path, requestOptions);
   if (first.ok || first.status !== 401) {
     return first;
   }
@@ -106,8 +133,7 @@ async function authenticatedRequest<T>(
   }
 
   return apiRequest<T>(method, path, {
-    json,
+    ...requestOptions,
     accessToken: getAccessToken(),
-    credentials: "include",
   });
 }

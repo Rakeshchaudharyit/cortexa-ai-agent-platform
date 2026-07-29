@@ -3,12 +3,16 @@ import type { ApiResult } from "@/types/api";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
+type HttpMethod = "GET" | "POST" | "DELETE";
+
 type RequestOptions = {
-  /** HTTP statuses that still yield a successful ApiResult with a parsed body. */
+  /** HTTP statuses that still yield a successful ApiResult. */
   acceptStatuses?: number[];
   accessToken?: string | null;
   credentials?: RequestCredentials;
   json?: unknown;
+  /** Multipart body — do not set Content-Type; the browser supplies the boundary. */
+  formData?: FormData;
   timeoutMs?: number;
 };
 
@@ -22,8 +26,12 @@ function buildUrl(path: string): string {
 }
 
 async function parseBody<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return null;
+  }
   try {
-    return (await response.json()) as T;
+    return JSON.parse(text) as T;
   } catch {
     return null;
   }
@@ -52,8 +60,15 @@ export async function apiPost<T>(
   return apiRequest<T>("POST", path, options);
 }
 
+export async function apiDelete<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  return apiRequest<T>("DELETE", path, options);
+}
+
 export async function apiRequest<T>(
-  method: "GET" | "POST",
+  method: HttpMethod,
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
@@ -68,18 +83,27 @@ export async function apiRequest<T>(
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
-  if (options.json !== undefined) {
+  // Only set JSON Content-Type when sending JSON. Multipart FormData must omit
+  // Content-Type so the browser can attach the multipart boundary.
+  if (options.json !== undefined && options.formData === undefined) {
     headers["Content-Type"] = "application/json";
   }
   if (options.accessToken) {
     headers.Authorization = `Bearer ${options.accessToken}`;
   }
 
+  let body: BodyInit | undefined;
+  if (options.formData !== undefined) {
+    body = options.formData;
+  } else if (options.json !== undefined) {
+    body = JSON.stringify(options.json);
+  }
+
   try {
     const response = await fetch(url, {
       method,
       headers,
-      body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
+      body,
       signal: controller.signal,
       cache: "no-store",
       credentials: options.credentials ?? "same-origin",
@@ -87,8 +111,11 @@ export async function apiRequest<T>(
 
     const data = await parseBody<T>(response);
 
-    if (acceptStatuses.has(response.status) && data !== null) {
-      return { ok: true, data, status: response.status };
+    if (acceptStatuses.has(response.status)) {
+      // 204 No Content has an empty body; treat as success with null data.
+      if (response.status === 204 || data !== null) {
+        return { ok: true, data: data as T, status: response.status };
+      }
     }
 
     return {

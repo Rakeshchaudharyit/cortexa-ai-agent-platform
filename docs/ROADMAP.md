@@ -72,7 +72,7 @@ Establish a production-quality, provider-neutral LLM layer with Ollama as the fi
 
 ## Phase 3 — Authentication and User Foundation
 
-**Status:** Current
+**Status:** Complete
 
 ### Objective
 
@@ -98,7 +98,37 @@ Implement production-quality authentication and user foundation with JWT access 
 
 ---
 
-## Phase 4 — Frontend Application Expansion
+## Phase 4 — Documents, Embeddings & RAG
+
+**Status:** Current
+
+### Objective
+
+Deliver private document ingestion, local embeddings, pgvector retrieval, and grounded answers with citations — plus a minimal authenticated documents UI.
+
+### Deliverables
+
+- Document + chunk models, pgvector extension, Alembic migration
+- Sync upload pipeline: validate → store → extract → chunk → embed
+- Supported formats: `.txt`, `.md`, `.pdf`, `.docx` (5 MiB)
+- Ownership isolation and duplicate checksum rejection
+- `POST /api/v1/rag/query` with citations; no LLM call when no context
+- Public `GET /api/v1/embeddings/status`
+- Authenticated frontend DocumentPanel
+- Comprehensive backend/frontend tests and [RAG.md](RAG.md)
+
+### Exclusions
+
+- Async ingestion workers / background queues
+- OCR for scanned PDFs
+- Product chat UI / conversation history
+- Memory / tools / voice
+- Organization or tenant management
+- Automatic model downloads
+
+---
+
+## Phase 5 — Frontend Application Expansion
 
 ### Objective
 
@@ -111,15 +141,15 @@ Expand the status UI toward a durable application shell without fabricating dash
 
 ---
 
-## Phase 5 — Database Models, Migrations & Repositories (domain expansion)
+## Phase 6 — Database Models, Migrations & Repositories (domain expansion)
 
 ### Objective
 
-Expand domain persistence beyond auth with additional repositories as product features arrive.
+Expand domain persistence beyond auth/documents with additional repositories as product features arrive.
 
 ---
 
-## Phase 5 — Chat / Agent Core Services
+## Phase 7 — Chat / Agent Core Services
 
 ### Objective
 
@@ -127,15 +157,7 @@ Deliver conversational and agent orchestration with streaming and persisted turn
 
 ---
 
-## Phase 6 — Embeddings, Vector Store & RAG
-
-### Objective
-
-Local embeddings, vector store provider, ingestion, and retrieval-augmented generation.
-
----
-
-## Phase 7 — Memory System
+## Phase 8 — Memory System
 
 ### Objective
 
@@ -143,7 +165,7 @@ Short-term and long-term memory with privacy controls and retention policies.
 
 ---
 
-## Phase 8 — Tool Calling Framework
+## Phase 9 — Tool Calling Framework
 
 ### Objective
 
@@ -151,7 +173,7 @@ Structured tool registration, permission gating, and audited execution.
 
 ---
 
-## Phase 9 — Speech (STT / TTS)
+## Phase 10 — Speech (STT / TTS)
 
 ### Objective
 
@@ -159,7 +181,7 @@ Local speech-to-text and text-to-speech providers.
 
 ---
 
-## Phase 10 — Enterprise Dashboard & Analytics
+## Phase 11 — Enterprise Dashboard & Analytics
 
 ### Objective
 
@@ -167,7 +189,7 @@ Operator dashboard with real metrics derived from local telemetry.
 
 ---
 
-## Phase 11 — Hardening, Observability & Security Controls
+## Phase 12 — Hardening, Observability & Security Controls
 
 ### Objective
 
@@ -175,7 +197,7 @@ Productionize local deployment: rate limits, audits, observability.
 
 ---
 
-## Phase 12 — Packaging, Release Docs & Demo Readiness
+## Phase 13 — Packaging, Release Docs & Demo Readiness
 
 ### Objective
 

@@ -1,6 +1,8 @@
-# Cortexa AI Agent Platform — local Docker Compose (Phase 3)
-# Real runnable services: backend, frontend, postgres, redis, ollama.
+# Cortexa AI Agent Platform — local Docker Compose (Phase 4)
+# Real runnable services: backend, frontend, postgres (pgvector), redis, ollama.
 # Ollama runs without pulling models. Models must be pulled explicitly.
+# Embedding model example:
+#   docker compose exec ollama ollama pull nomic-embed-text
 
 name: cortexa
 
@@ -52,6 +54,29 @@ services:
       LLM_MAX_INPUT_CHARACTERS: ${LLM_MAX_INPUT_CHARACTERS:-32000}
       LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-2048}
       LLM_DEFAULT_TEMPERATURE: ${LLM_DEFAULT_TEMPERATURE:-0.7}
+      DOCUMENT_UPLOAD_ENABLED: ${DOCUMENT_UPLOAD_ENABLED:-true}
+      DOCUMENT_STORAGE_PATH: /var/lib/cortexa/documents
+      DOCUMENT_MAX_FILE_SIZE_BYTES: ${DOCUMENT_MAX_FILE_SIZE_BYTES:-5242880}
+      DOCUMENT_ALLOWED_EXTENSIONS: ${DOCUMENT_ALLOWED_EXTENSIONS:-.txt,.md,.pdf,.docx}
+      DOCUMENT_MAX_TEXT_CHARACTERS: ${DOCUMENT_MAX_TEXT_CHARACTERS:-500000}
+      DOCUMENT_MAX_CHUNKS: ${DOCUMENT_MAX_CHUNKS:-500}
+      CHUNK_SIZE_CHARACTERS: ${CHUNK_SIZE_CHARACTERS:-1200}
+      CHUNK_OVERLAP_CHARACTERS: ${CHUNK_OVERLAP_CHARACTERS:-200}
+      CHUNK_MIN_CHARACTERS: ${CHUNK_MIN_CHARACTERS:-40}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-16}
+      EMBEDDING_REQUEST_TIMEOUT_SECONDS: ${EMBEDDING_REQUEST_TIMEOUT_SECONDS:-60}
+      EMBEDDING_MAX_INPUT_CHARACTERS: ${EMBEDDING_MAX_INPUT_CHARACTERS:-8000}
+      RAG_DEFAULT_TOP_K: ${RAG_DEFAULT_TOP_K:-5}
+      RAG_MAX_TOP_K: ${RAG_MAX_TOP_K:-20}
+      RAG_MIN_SIMILARITY: ${RAG_MIN_SIMILARITY:-0.4}
+      RAG_MAX_QUERY_CHARACTERS: ${RAG_MAX_QUERY_CHARACTERS:-2000}
+      RAG_MAX_CONTEXT_CHARACTERS: ${RAG_MAX_CONTEXT_CHARACTERS:-12000}
+      RAG_CITATION_EXCERPT_CHARACTERS: ${RAG_CITATION_EXCERPT_CHARACTERS:-280}
+    volumes:
+      - cortexa_documents_data:/var/lib/cortexa/documents
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -101,7 +126,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17.4-alpine
+    image: pgvector/pgvector:pg17
     container_name: cortexa-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-cortexa_agent}
@@ -145,6 +170,7 @@ services:
     container_name: cortexa-ollama
     # No model pull on start. Pull explicitly, for example:
     #   docker compose exec ollama ollama pull qwen2.5:7b
+    #   docker compose exec ollama ollama pull nomic-embed-text
     # Host port mapping avoids clash with a local Ollama install on :11434.
     # Backend uses the Compose DNS name: http://ollama:11434
     ports:
@@ -173,6 +199,8 @@ volumes:
     name: cortexa_redis_data
   cortexa_ollama_data:
     name: cortexa_ollama_data
+  cortexa_documents_data:
+    name: cortexa_documents_data
   cortexa_frontend_node_modules:
     name: cortexa_frontend_node_modules
   cortexa_frontend_next:

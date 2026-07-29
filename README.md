@@ -4,9 +4,9 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 3 — Authentication and User Foundation  
-> FastAPI, Next.js, PostgreSQL, Redis, Ollama LLM provider, and email/password authentication are runnable.  
-> Chat UI, RAG, memory, tools, voice, and organization/tenant management are **not** implemented.
+> **Current status:** Phase 4 — Documents, Embeddings & RAG  
+> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication, document ingestion, and grounded Q&A are runnable.  
+> Product chat UI, memory, tools, voice, and organization/tenant management are **not** implemented.
 
 ---
 
@@ -22,22 +22,22 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 3 adds production-quality authentication (JWT access tokens + HttpOnly refresh cookies) while preserving Phase 1–2 infrastructure and LLM provider behavior.
+Phase 4 adds private document upload, local embeddings, pgvector retrieval, and grounded answers with citations, on top of Phase 1–3 infrastructure and authentication.
 
 ---
 
-## What Phase 3 Implements
+## What Phase 4 Implements
 
 | Capability | Status |
 | --- | --- |
-| Phase 1–2 foundation | Preserved |
-| User model + refresh sessions | Implemented |
-| Registration / login / logout / refresh / me | Implemented |
-| Argon2id passwords + JWT access tokens | Implemented |
-| Refresh-token rotation + reuse detection | Implemented |
-| Protected LLM generate/stream | Implemented |
-| Minimal `/login` and `/register` UI | Implemented |
-| Auth tests + docs | Implemented |
+| Phase 1–3 foundation + auth | Preserved |
+| Document upload (txt/md/pdf/docx, 5 MiB) | Implemented |
+| Synchronous extract → chunk → embed | Implemented |
+| pgvector storage + cosine retrieval | Implemented |
+| Grounded RAG query + citations | Implemented |
+| Embedding status API | Implemented |
+| Authenticated Documents UI | Implemented |
+| Document/RAG tests + docs | Implemented |
 
 ## What Remains Unavailable
 
@@ -46,7 +46,6 @@ Phase 3 adds production-quality authentication (JWT access tokens + HttpOnly ref
 | Product chat UI / conversation history | Not implemented |
 | Organization / tenant management | Not implemented |
 | Social login / password-reset email | Not implemented |
-| RAG / embeddings / vector search | Not implemented |
 | Memory / tools / voice | Not implemented |
 | Analytics / admin modules | Not implemented |
 | Automatic model downloads | Intentionally disabled |
@@ -64,8 +63,11 @@ curl -i http://localhost:18000/health
 curl -i http://localhost:18000/ready
 curl -i http://localhost:18000/api/v1/llm/status
 
-# Pull the default model only when you want generation to succeed
+# Pull models only when you want generation / embeddings to succeed
 docker compose exec ollama ollama pull qwen2.5:7b
+docker compose exec ollama ollama pull nomic-embed-text
+
+curl -i http://localhost:18000/api/v1/embeddings/status
 
 open http://localhost:13000
 ```

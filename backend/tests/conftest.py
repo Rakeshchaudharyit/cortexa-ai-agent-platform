@@ -6,12 +6,15 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 from app.api.deps import get_current_active_user
 from app.core.config import Settings, clear_settings_cache
 from app.db.session import get_session_factory, init_engine, reset_engine_state
+from app.documents.chunking import ChunkingConfig, ChunkingService
+from app.documents.extraction import ExtractionService
 from app.main import create_app
 from app.models.enums import UserRole, UserStatus
 from app.models.user import User
@@ -19,18 +22,28 @@ from app.providers.http import reset_http_client_state
 from app.providers.redis import reset_redis_state
 from app.schemas.health import DependencyCheck, ReadinessChecks, ReadinessResponse
 from app.services.auth import AuthService
+from app.services.documents import DocumentService
+from app.services.embeddings import EmbeddingService
 from app.services.health import HealthService
 from app.services.llm import LLMService
+from app.services.rag import RagService
+from app.services.retrieval import RetrievalService
+from app.storage.local import LocalFilesystemStorage
 from fastapi import FastAPI, Query
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+from tests.fakes.embeddings import FakeEmbeddingProvider
 from tests.fakes.llm import FakeLLMProvider
 
 
 @pytest.fixture
-def settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
+def settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[Settings]:
     """Isolated settings for unit tests (no real DB/Redis required)."""
+    storage_root = tmp_path_factory.mktemp("document-storage")
     monkeypatch.setenv("APP_NAME", "Cortexa AI Agent Platform")
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("APP_DEBUG", "false")
@@ -81,6 +94,28 @@ def settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     monkeypatch.setenv("LLM_MAX_INPUT_CHARACTERS", "1000")
     monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "256")
     monkeypatch.setenv("LLM_DEFAULT_TEMPERATURE", "0.2")
+    # Phase 4 — documents / embeddings / RAG
+    monkeypatch.setenv("DOCUMENT_UPLOAD_ENABLED", "true")
+    monkeypatch.setenv("DOCUMENT_STORAGE_PATH", str(storage_root))
+    monkeypatch.setenv("DOCUMENT_MAX_FILE_SIZE_BYTES", "5242880")
+    monkeypatch.setenv("DOCUMENT_ALLOWED_EXTENSIONS", ".txt,.md,.pdf,.docx")
+    monkeypatch.setenv("DOCUMENT_MAX_TEXT_CHARACTERS", "500000")
+    monkeypatch.setenv("DOCUMENT_MAX_CHUNKS", "500")
+    monkeypatch.setenv("CHUNK_SIZE_CHARACTERS", "1200")
+    monkeypatch.setenv("CHUNK_OVERLAP_CHARACTERS", "200")
+    monkeypatch.setenv("CHUNK_MIN_CHARACTERS", "40")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+    monkeypatch.setenv("EMBEDDING_DIMENSION", "768")
+    monkeypatch.setenv("EMBEDDING_BATCH_SIZE", "16")
+    monkeypatch.setenv("EMBEDDING_REQUEST_TIMEOUT_SECONDS", "60")
+    monkeypatch.setenv("EMBEDDING_MAX_INPUT_CHARACTERS", "8000")
+    monkeypatch.setenv("RAG_DEFAULT_TOP_K", "5")
+    monkeypatch.setenv("RAG_MAX_TOP_K", "20")
+    monkeypatch.setenv("RAG_MIN_SIMILARITY", "0.0")
+    monkeypatch.setenv("RAG_MAX_QUERY_CHARACTERS", "2000")
+    monkeypatch.setenv("RAG_MAX_CONTEXT_CHARACTERS", "12000")
+    monkeypatch.setenv("RAG_CITATION_EXCERPT_CHARACTERS", "280")
     clear_settings_cache()
     reset_engine_state()
     reset_redis_state()
@@ -149,12 +184,29 @@ def fake_llm_provider() -> FakeLLMProvider:
 
 
 @pytest.fixture
-def app(settings: Settings, fake_llm_provider: FakeLLMProvider) -> FastAPI:
-    """Application with stubbed health/LLM services (no live dependencies)."""
+def fake_embedding_provider(settings: Settings) -> FakeEmbeddingProvider:
+    return FakeEmbeddingProvider(
+        model=settings.ollama_embedding_model,
+        dimension=settings.embedding_dimension,
+    )
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    fake_llm_provider: FakeLLMProvider,
+    fake_embedding_provider: FakeEmbeddingProvider,
+) -> FastAPI:
+    """Application with stubbed health/LLM/embedding services (no live dependencies)."""
     application = create_app(settings)
     application.state.health_service = StubHealthService(settings)
     application.state.llm_service = LLMService(settings=settings, provider=fake_llm_provider)
     application.state.auth_service = AuthService.from_settings(settings)
+    application.state.embedding_provider = fake_embedding_provider
+    application.state.embedding_service = EmbeddingService(
+        settings=settings,
+        provider=fake_embedding_provider,
+    )
 
     # LLM generate/stream require an active user; override so non-auth LLM tests
     # remain independent of the database.
@@ -201,23 +253,36 @@ async def db_engine(settings: Settings) -> AsyncIterator[None]:
 async def db_session(db_engine: None) -> AsyncIterator[Any]:
     factory = get_session_factory()
     async with factory() as session:
-        # Isolate auth tests without dropping schema.
+        # Isolate integration tests without dropping schema.
+        await session.execute(text("DELETE FROM document_chunks"))
+        await session.execute(text("DELETE FROM documents"))
         await session.execute(text("DELETE FROM refresh_sessions"))
         await session.execute(text("DELETE FROM users"))
         await session.commit()
         yield session
+        await session.execute(text("DELETE FROM document_chunks"))
+        await session.execute(text("DELETE FROM documents"))
         await session.execute(text("DELETE FROM refresh_sessions"))
         await session.execute(text("DELETE FROM users"))
         await session.commit()
 
 
 @pytest.fixture
-def auth_app(settings: Settings, fake_llm_provider: FakeLLMProvider) -> FastAPI:
+def auth_app(
+    settings: Settings,
+    fake_llm_provider: FakeLLMProvider,
+    fake_embedding_provider: FakeEmbeddingProvider,
+) -> FastAPI:
     """App for auth API tests — real auth deps, no active-user override."""
     application = create_app(settings)
     application.state.health_service = StubHealthService(settings)
     application.state.llm_service = LLMService(settings=settings, provider=fake_llm_provider)
     application.state.auth_service = AuthService.from_settings(settings)
+    application.state.embedding_provider = fake_embedding_provider
+    application.state.embedding_service = EmbeddingService(
+        settings=settings,
+        provider=fake_embedding_provider,
+    )
     init_engine(settings)
     return application
 
@@ -226,6 +291,102 @@ def auth_app(settings: Settings, fake_llm_provider: FakeLLMProvider) -> FastAPI:
 async def auth_client(auth_app: FastAPI, db_session: Any) -> AsyncIterator[AsyncClient]:
     _ = db_session  # ensure tables are cleaned before requests
     transport = ASGITransport(app=auth_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={},
+    ) as async_client:
+        yield async_client
+
+
+def _wire_rag_services(
+    application: FastAPI,
+    *,
+    settings: Settings,
+    llm_provider: FakeLLMProvider,
+    embedding_provider: FakeEmbeddingProvider,
+    storage_root: Path,
+) -> None:
+    storage = LocalFilesystemStorage(root_path=str(storage_root))
+    extraction_service = ExtractionService(settings)
+    chunking_service = ChunkingService(
+        ChunkingConfig(
+            chunk_size=settings.chunk_size_characters,
+            overlap=settings.chunk_overlap_characters,
+            min_characters=settings.chunk_min_characters,
+            max_chunks=settings.document_max_chunks,
+        )
+    )
+    document_service = DocumentService(
+        settings=settings,
+        storage=storage,
+        extraction_service=extraction_service,
+        chunking_service=chunking_service,
+        embedding_provider=embedding_provider,
+    )
+    retrieval_service = RetrievalService(
+        settings=settings,
+        embedding_provider=embedding_provider,
+    )
+    llm_service = LLMService(settings=settings, provider=llm_provider)
+    embedding_service = EmbeddingService(
+        settings=settings,
+        provider=embedding_provider,
+    )
+    rag_service = RagService(
+        settings=settings,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service,
+    )
+
+    application.state.health_service = StubHealthService(settings)
+    application.state.auth_service = AuthService.from_settings(settings)
+    application.state.storage = storage
+    application.state.extraction_service = extraction_service
+    application.state.chunking_service = chunking_service
+    application.state.document_service = document_service
+    application.state.retrieval_service = retrieval_service
+    application.state.llm_provider = llm_provider
+    application.state.llm_service = llm_service
+    application.state.embedding_provider = embedding_provider
+    application.state.embedding_service = embedding_service
+    application.state.rag_service = rag_service
+
+
+@pytest.fixture
+def rag_app(
+    settings: Settings,
+    fake_llm_provider: FakeLLMProvider,
+    tmp_path: Path,
+) -> FastAPI:
+    """App for document/RAG API tests — real auth, faked LLM/embeddings, temp storage."""
+    fake_llm_provider.generate_content = (
+        "Based on the provided context [1], Cortexa is a local-first agent platform."
+    )
+    embedding_provider = FakeEmbeddingProvider(
+        model=settings.ollama_embedding_model,
+        dimension=settings.embedding_dimension,
+        identical_vectors=True,
+    )
+    application = create_app(settings)
+    _wire_rag_services(
+        application,
+        settings=settings,
+        llm_provider=fake_llm_provider,
+        embedding_provider=embedding_provider,
+        storage_root=tmp_path / "rag-documents",
+    )
+    init_engine(settings)
+    # Expose providers for assertions (generate_calls, etc.).
+    application.state.fake_llm_provider = fake_llm_provider
+    application.state.fake_embedding_provider = embedding_provider
+    return application
+
+
+@pytest.fixture
+async def rag_client(rag_app: FastAPI, db_session: Any) -> AsyncIterator[AsyncClient]:
+    _ = db_session
+    transport = ASGITransport(app=rag_app)
     async with AsyncClient(
         transport=transport,
         base_url="http://test",

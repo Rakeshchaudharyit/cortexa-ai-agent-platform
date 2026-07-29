@@ -34,15 +34,19 @@ logger = logging.getLogger("cortexa.llm.ollama")
 
 
 def _model_matches(installed: str, requested: str) -> bool:
-    """Match Ollama model names allowing optional digest suffixes."""
-    left = installed.strip().lower()
-    right = requested.strip().lower()
+    """Match Ollama model names allowing optional tags and digest suffixes."""
+    left = installed.strip().lower().split("@", 1)[0]
+    right = requested.strip().lower().split("@", 1)[0]
     if left == right:
         return True
-    # Tags may appear as name:tag or name:tag@digest
-    left_base = left.split("@", 1)[0]
-    right_base = right.split("@", 1)[0]
-    return left_base == right_base
+    left_name, _, left_tag = left.partition(":")
+    right_name, _, right_tag = right.partition(":")
+    if left_name != right_name:
+        return False
+    # Treat missing tag as matching any tag (including :latest).
+    if not left_tag or not right_tag:
+        return True
+    return left_tag == right_tag
 
 
 class OllamaProvider:

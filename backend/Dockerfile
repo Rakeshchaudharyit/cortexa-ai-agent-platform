@@ -17,8 +17,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 cortexa \
     && useradd --system --uid 10001 --gid cortexa --home /app --shell /usr/sbin/nologin cortexa \
-    && mkdir -p /tmp/ruff_cache /tmp/mypy_cache \
-    && chown -R cortexa:cortexa /tmp/ruff_cache /tmp/mypy_cache
+    && mkdir -p /tmp/ruff_cache /tmp/mypy_cache /var/lib/cortexa/documents \
+    && chown -R cortexa:cortexa /tmp/ruff_cache /tmp/mypy_cache /var/lib/cortexa/documents
 
 # Dependency layer (cache-friendly)
 COPY pyproject.toml README.md ./
@@ -26,16 +26,20 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY tests ./tests
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 RUN pip install --upgrade pip \
     && pip install -e ".[dev]" \
+    && chmod +x /docker-entrypoint.sh \
     && chown -R cortexa:cortexa /app
 
-USER cortexa
+# Entrypoint starts as root to fix volume ownership, then drops to cortexa.
+USER root
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

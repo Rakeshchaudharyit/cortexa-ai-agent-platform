@@ -231,20 +231,24 @@ Never set `OLLAMA_BASE_URL=http://localhost:11435` inside the backend container.
 | Frontend `/_next/static` 404 or icon 500 | `.next` polluted by root-owned build | Restart frontend; validate runs as `-u cortexa` then restarts |
 | LLM status `provider_unavailable` | Ollama down / wrong base URL | `docker compose ps ollama`; use `http://ollama:11434` |
 | LLM status `model_unavailable` | Model not pulled | `docker compose exec ollama ollama pull qwen2.5:7b` |
+| Embedding status `model_unavailable` | Embedding model not pulled | `docker compose exec ollama ollama pull nomic-embed-text` |
+| Document upload `415` | Unsupported type | Use `.txt`, `.md`, `.pdf`, or `.docx` |
+| Document upload `409` | Duplicate checksum | File already uploaded for this user |
+| RAG returns no citations | No ready docs / low similarity | Upload a document; lower `RAG_MIN_SIMILARITY` only in tests |
 | Generate → 504 | Provider timeout | Raise `OLLAMA_REQUEST_TIMEOUT_SECONDS` or reduce `max_tokens` |
 | Generate → 424 | Model missing | Pull model manually |
 | Docker bind mount denied | Docker Desktop file sharing | Move repo under an allowed path (for example `~/Projects`) |
 
 ---
 
-## Current Limitations (Phase 2)
+## Current Limitations (Phase 4)
 
-- No authentication
-- No chat product UI / conversation history
-- No RAG, memory, tools, or voice
-- No domain database tables beyond Alembic baseline
-- Models must be pulled manually
-- Frontend remains an operator status surface, not an enterprise dashboard
+- No product chat UI / conversation history
+- No memory, tools, or voice
+- Document ingest is synchronous (request-scoped); no background workers
+- PDF text extraction only (no OCR); encrypted PDFs rejected
+- Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)
+- Frontend is an operator/status + documents surface, not an enterprise dashboard
 
 ---
 

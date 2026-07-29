@@ -139,6 +139,117 @@ class Settings(BaseSettings):
         alias="LLM_DEFAULT_TEMPERATURE",
     )
 
+    # Documents / storage (Phase 4)
+    document_upload_enabled: bool = Field(default=True, alias="DOCUMENT_UPLOAD_ENABLED")
+    document_storage_path: str = Field(
+        default="/tmp/cortexa-documents",
+        alias="DOCUMENT_STORAGE_PATH",
+    )
+    document_max_file_size_bytes: int = Field(
+        default=5_242_880,  # 5 MiB
+        ge=1_024,
+        le=52_428_800,
+        alias="DOCUMENT_MAX_FILE_SIZE_BYTES",
+    )
+    document_allowed_extensions: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [".txt", ".md", ".pdf", ".docx"],
+        alias="DOCUMENT_ALLOWED_EXTENSIONS",
+    )
+    document_max_text_characters: int = Field(
+        default=500_000,
+        ge=1_000,
+        le=5_000_000,
+        alias="DOCUMENT_MAX_TEXT_CHARACTERS",
+    )
+    document_max_chunks: int = Field(
+        default=500,
+        ge=1,
+        le=5_000,
+        alias="DOCUMENT_MAX_CHUNKS",
+    )
+
+    # Chunking (Phase 4)
+    chunk_size_characters: int = Field(
+        default=1_200,
+        ge=100,
+        le=20_000,
+        alias="CHUNK_SIZE_CHARACTERS",
+    )
+    chunk_overlap_characters: int = Field(
+        default=200,
+        ge=0,
+        le=5_000,
+        alias="CHUNK_OVERLAP_CHARACTERS",
+    )
+    chunk_min_characters: int = Field(
+        default=40,
+        ge=1,
+        le=5_000,
+        alias="CHUNK_MIN_CHARACTERS",
+    )
+
+    # Embeddings (Phase 4)
+    embedding_provider: Literal["ollama"] = Field(
+        default="ollama",
+        alias="EMBEDDING_PROVIDER",
+    )
+    ollama_embedding_model: str = Field(
+        default="nomic-embed-text",
+        alias="OLLAMA_EMBEDDING_MODEL",
+    )
+    embedding_dimension: int = Field(
+        default=768,
+        ge=8,
+        le=4096,
+        alias="EMBEDDING_DIMENSION",
+    )
+    embedding_batch_size: int = Field(
+        default=16,
+        ge=1,
+        le=128,
+        alias="EMBEDDING_BATCH_SIZE",
+    )
+    embedding_request_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        le=600,
+        alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+    )
+    embedding_max_input_characters: int = Field(
+        default=8_000,
+        ge=100,
+        le=100_000,
+        alias="EMBEDDING_MAX_INPUT_CHARACTERS",
+    )
+
+    # RAG retrieval / generation (Phase 4)
+    rag_default_top_k: int = Field(default=5, ge=1, le=50, alias="RAG_DEFAULT_TOP_K")
+    rag_max_top_k: int = Field(default=20, ge=1, le=100, alias="RAG_MAX_TOP_K")
+    rag_min_similarity: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        alias="RAG_MIN_SIMILARITY",
+    )
+    rag_max_query_characters: int = Field(
+        default=2_000,
+        ge=1,
+        le=20_000,
+        alias="RAG_MAX_QUERY_CHARACTERS",
+    )
+    rag_max_context_characters: int = Field(
+        default=12_000,
+        ge=500,
+        le=200_000,
+        alias="RAG_MAX_CONTEXT_CHARACTERS",
+    )
+    rag_citation_excerpt_characters: int = Field(
+        default=280,
+        ge=40,
+        le=2_000,
+        alias="RAG_CITATION_EXCERPT_CHARACTERS",
+    )
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:
@@ -154,6 +265,27 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         raise TypeError("CORS_ALLOWED_ORIGINS must be a string or list of strings")
+
+    @field_validator("document_allowed_extensions", mode="before")
+    @classmethod
+    def parse_document_extensions(cls, value: object) -> list[str]:
+        if value is None or value == "":
+            return [".txt", ".md", ".pdf", ".docx"]
+        if isinstance(value, list):
+            items = value
+        elif isinstance(value, str):
+            items = value.split(",")
+        else:
+            raise TypeError("DOCUMENT_ALLOWED_EXTENSIONS must be a string or list")
+        normalized: list[str] = []
+        for item in items:
+            ext = str(item).strip().lower()
+            if not ext:
+                continue
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            normalized.append(ext)
+        return normalized or [".txt", ".md", ".pdf", ".docx"]
 
     @field_validator("api_prefix")
     @classmethod
@@ -180,6 +312,14 @@ class Settings(BaseSettings):
             raise ValueError("LLM_PROVIDER must be 'ollama' in Phase 2")
         return provider
 
+    @field_validator("embedding_provider")
+    @classmethod
+    def normalize_embedding_provider(cls, value: str) -> str:
+        provider = value.strip().lower()
+        if provider != "ollama":
+            raise ValueError("EMBEDDING_PROVIDER must be 'ollama' in Phase 4")
+        return provider
+
     @field_validator("ollama_base_url")
     @classmethod
     def normalize_ollama_base_url(cls, value: str) -> str:
@@ -195,6 +335,24 @@ class Settings(BaseSettings):
         if not model:
             raise ValueError("OLLAMA_MODEL cannot be blank")
         return model
+
+    @field_validator("ollama_embedding_model")
+    @classmethod
+    def normalize_ollama_embedding_model(cls, value: str) -> str:
+        model = value.strip()
+        if not model:
+            raise ValueError("OLLAMA_EMBEDDING_MODEL cannot be blank")
+        return model
+
+    @field_validator("document_storage_path")
+    @classmethod
+    def normalize_document_storage_path(cls, value: str) -> str:
+        path = value.strip()
+        if not path:
+            raise ValueError("DOCUMENT_STORAGE_PATH cannot be blank")
+        if "\x00" in path:
+            raise ValueError("DOCUMENT_STORAGE_PATH cannot contain null bytes")
+        return path
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -238,6 +396,14 @@ class Settings(BaseSettings):
             self.redis_url = f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
         if self.password_min_length > self.password_max_length:
             raise ValueError("PASSWORD_MIN_LENGTH cannot exceed PASSWORD_MAX_LENGTH")
+        if self.chunk_overlap_characters >= self.chunk_size_characters:
+            raise ValueError("CHUNK_OVERLAP_CHARACTERS must be less than CHUNK_SIZE_CHARACTERS")
+        if self.rag_default_top_k > self.rag_max_top_k:
+            raise ValueError("RAG_DEFAULT_TOP_K cannot exceed RAG_MAX_TOP_K")
+        if self.embedding_dimension != 768 and self.ollama_embedding_model == "nomic-embed-text":
+            raise ValueError(
+                "EMBEDDING_DIMENSION must be 768 when OLLAMA_EMBEDDING_MODEL is nomic-embed-text"
+            )
         if self.is_production:
             lowered = self.jwt_secret_key.lower()
             if lowered in _INSECURE_JWT_SECRETS or "dev-only" in lowered or "replace" in lowered:
@@ -282,6 +448,21 @@ class Settings(BaseSettings):
             "llm_max_input_characters": self.llm_max_input_characters,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_default_temperature": self.llm_default_temperature,
+            "document_upload_enabled": self.document_upload_enabled,
+            "document_max_file_size_bytes": self.document_max_file_size_bytes,
+            "document_allowed_extensions": self.document_allowed_extensions,
+            "document_max_text_characters": self.document_max_text_characters,
+            "document_max_chunks": self.document_max_chunks,
+            "chunk_size_characters": self.chunk_size_characters,
+            "chunk_overlap_characters": self.chunk_overlap_characters,
+            "chunk_min_characters": self.chunk_min_characters,
+            "embedding_provider": self.embedding_provider,
+            "ollama_embedding_model": self.ollama_embedding_model,
+            "embedding_dimension": self.embedding_dimension,
+            "embedding_batch_size": self.embedding_batch_size,
+            "rag_default_top_k": self.rag_default_top_k,
+            "rag_max_top_k": self.rag_max_top_k,
+            "rag_min_similarity": self.rag_min_similarity,
         }
 
 

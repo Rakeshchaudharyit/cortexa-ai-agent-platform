@@ -14,6 +14,7 @@ from app.db.base import Base
 from app.models.enums import UserRole, UserStatus
 
 if TYPE_CHECKING:
+    from app.models.document import Document
     from app.models.refresh_session import RefreshSession
 
 
@@ -74,6 +75,11 @@ class User(Base):
 
     refresh_sessions: Mapped[list[RefreshSession]] = relationship(
         "RefreshSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    documents: Mapped[list[Document]] = relationship(
+        "Document",
         back_populates="user",
         cascade="all, delete-orphan",
     )

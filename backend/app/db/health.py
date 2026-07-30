@@ -12,6 +12,9 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.core.config import Settings
+from app.db.identity import check_database_identity
+
 logger = logging.getLogger("cortexa.db.health")
 
 # Phase 5 conversation persistence — required for chat API readiness.
@@ -20,6 +23,8 @@ REQUIRED_CONVERSATION_TABLES: tuple[str, ...] = (
     "messages",
     "message_citations",
 )
+
+REQUIRED_IDENTITY_TABLES: tuple[str, ...] = ("application_metadata",)
 
 
 def _alembic_config() -> Config:
@@ -55,7 +60,8 @@ def _check_migration_head(connection: Connection) -> tuple[bool, str | None]:
 
 
 async def check_required_tables(engine: AsyncEngine) -> tuple[bool, str | None]:
-    """Verify Phase 5 conversation tables exist."""
+    """Verify Phase 5 conversation tables and identity metadata exist."""
+    required = (*REQUIRED_CONVERSATION_TABLES, *REQUIRED_IDENTITY_TABLES)
     try:
         async with engine.connect() as connection:
             stmt = text(
@@ -68,10 +74,10 @@ async def check_required_tables(engine: AsyncEngine) -> tuple[bool, str | None]:
             ).bindparams(bindparam("tables", expanding=True))
             result = await connection.execute(
                 stmt,
-                {"tables": list(REQUIRED_CONVERSATION_TABLES)},
+                {"tables": list(required)},
             )
             found = {row[0] for row in result.fetchall()}
-        missing = [name for name in REQUIRED_CONVERSATION_TABLES if name not in found]
+        missing = [name for name in required if name not in found]
         if missing:
             return False, "Database schema incomplete"
         return True, None
@@ -90,8 +96,11 @@ async def check_migrations(engine: AsyncEngine) -> tuple[bool, str | None]:
         return False, "Database unavailable"
 
 
-async def check_database(engine: AsyncEngine) -> tuple[bool, str | None]:
-    """Connectivity + migration head + required Phase 5 tables.
+async def check_database(
+    engine: AsyncEngine,
+    settings: Settings | None = None,
+) -> tuple[bool, str | None]:
+    """Connectivity + migration head + required tables + database identity.
 
     Returns (ok, sanitized_message_on_failure). Never includes hostnames,
     connection strings, or raw exception text.
@@ -110,5 +119,10 @@ async def check_database(engine: AsyncEngine) -> tuple[bool, str | None]:
     tables_ok, tables_message = await check_required_tables(engine)
     if not tables_ok:
         return False, tables_message or "Database schema incomplete"
+
+    if settings is not None:
+        identity_ok, identity_message = await check_database_identity(engine, settings)
+        if not identity_ok:
+            return False, identity_message or "Database identity mismatch"
 
     return True, None

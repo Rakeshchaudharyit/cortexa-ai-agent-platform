@@ -108,14 +108,23 @@ npm run build
 
 | Command | Purpose |
 | --- | --- |
-| `make up` / `make down` | Start / stop Compose |
+| `make up` / `make down` | Start / stop Compose (`down` preserves volumes) |
+| `make compose-identity` | Verify Compose project name, Postgres volume, DB name |
+| `make reset-dev-database` | Destructive reset only (typed confirmation + backup) |
 | `make test` | Backend + frontend tests |
+| `make test-services-up` / `test-db-migrate` / `test-backend` | Isolated test Postgres/Redis (`cortexa_agent_test`) |
 | `make lint` / `make typecheck` | Quality gates |
 | `make health` / `make ready` | Probe API |
 | `make migrate` | Alembic upgrade head (Docker) |
-| `make validate` | Full Phase 1 + Phase 2 validation suite |
+| `make validate` | Full Phase 1–5.1 validation suite (includes compose identity) |
 
 Commands fail when underlying checks fail.
+
+**Backend tests** run only against the isolated Compose project `cortexa-test`
+(`docker-compose.test.yml`): database `cortexa_agent_test`, identity
+`cortexa-agent-test`, volume `cortexa_postgres_test_data`. They never use
+`cortexa_agent` / `cortexa_postgres_data`. Use `make test-backend` or
+`make validate` — never `docker compose exec backend pytest`.
 
 ---
 
@@ -124,10 +133,13 @@ Commands fail when underlying checks fail.
 See `.env.example`. Key variables:
 
 - `APP_*`, `API_PREFIX`, `LOG_LEVEL`, `BACKEND_*`
-- `POSTGRES_*`, `DATABASE_URL`
+- `POSTGRES_*`, `DATABASE_URL`, `EXPECTED_APPLICATION_ID`, `EXPECTED_DATABASE_IDENTITY`
 - `REDIS_*`, `REDIS_URL`
-- `CORS_ALLOWED_ORIGINS`
-- `NEXT_PUBLIC_API_BASE_URL`
+- `CORS_ALLOWED_ORIGINS`, `FRONTEND_ORIGIN`
+- `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_PASSWORD_RESET_DEV_NOTICE`
+
+**Auth hostname rule:** never mix `localhost` and `127.0.0.1` between the browser URL and `NEXT_PUBLIC_API_BASE_URL`. Refresh cookies are host-bound (`SameSite=Lax`); a mismatch makes login succeed then lose the session on reload. Prefer `http://127.0.0.1:13000` + `http://127.0.0.1:18000` for this workspace’s published ports. Run `./scripts/check_auth_hostname.sh`.
+
 - Phase 2 LLM: `LLM_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`,
   `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_CONNECT_TIMEOUT_SECONDS`,
   `LLM_MAX_INPUT_CHARACTERS`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_DEFAULT_TEMPERATURE`
@@ -140,7 +152,7 @@ Security placeholders may exist but are not implemented yet.
 ## Health / Readiness / LLM Status
 
 - `/health` and `/health/live` — process alive; no DB/Redis/Ollama
-- `/ready` and `/health/ready` — Postgres connectivity, Alembic at head, required Phase 5 conversation tables, and Redis `PING`; independent results; `503` if any fail
+- `/ready` and `/health/ready` — Postgres connectivity, Alembic at head, required Phase 5 conversation tables, database identity metadata, and Redis `PING`; independent results; `503` if any fail
 - `/api/v1/llm/status` — Ollama reachability + configured model availability; **does not** gate `/ready`
 - Errors never include credentials, URLs with secrets, or stack traces
 

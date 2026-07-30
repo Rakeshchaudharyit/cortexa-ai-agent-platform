@@ -1,11 +1,16 @@
-# Cortexa AI Agent Platform — developer commands (Phase 1)
+# Cortexa AI Agent Platform — developer commands (Phase 5)
 
 .PHONY: help install dev up down build logs backend-logs frontend-logs \
 	test test-backend test-frontend lint format typecheck migrate \
-	health ready validate clean compose-config secrets-check
+	health ready validate clean compose-config compose-identity auth-hostname \
+	secrets-check reset-dev-database \
+	test-services-up test-db-migrate test-services-down test-services-reset \
+	validate-preserve-before validate-preserve-after validate-preserve-compare
+
+COMPOSE_TEST := COMPOSE_IGNORE_ORPHANS=1 docker compose -p cortexa-test -f docker-compose.test.yml
 
 help:
-	@echo "Cortexa AI Agent Platform — Phase 3"
+	@echo "Cortexa AI Agent Platform — Phase 5"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install         Install backend + frontend dependencies locally"
@@ -13,20 +18,29 @@ help:
 	@echo ""
 	@echo "Docker:"
 	@echo "  make up              Build and start Compose stack"
-	@echo "  make down            Stop Compose stack"
+	@echo "  make down            Stop Compose stack (preserves volumes)"
 	@echo "  make build           Build Compose images"
 	@echo "  make logs            Follow all service logs"
 	@echo "  make backend-logs    Follow backend logs"
 	@echo "  make frontend-logs   Follow frontend logs"
+	@echo "  make compose-identity  Verify Compose project/volume/db identity"
+	@echo "  make auth-hostname     Verify browser/API auth hosts are not mixed"
+	@echo "  make reset-dev-database  DESTRUCTIVE reset (typed confirmation)"
+	@echo ""
+	@echo "Isolated tests (never touches cortexa_agent):"
+	@echo "  make test-services-up     Start postgres-test + redis-test"
+	@echo "  make test-db-migrate      Migrate cortexa_agent_test + set test identity"
+	@echo "  make test-backend         Run pytest against cortexa_agent_test"
+	@echo "  make test-services-down   Stop test stack (keeps test volume)"
+	@echo "  make test-services-reset  Stop test stack and remove TEST volumes only"
 	@echo ""
 	@echo "Quality:"
-	@echo "  make test            Run backend + frontend tests"
-	@echo "  make test-backend    Run backend pytest"
+	@echo "  make test            Run backend + frontend tests (isolated DB)"
 	@echo "  make test-frontend   Run frontend vitest"
 	@echo "  make lint            Run ruff + eslint"
 	@echo "  make format          Format backend with ruff"
 	@echo "  make typecheck       Run mypy + tsc"
-	@echo "  make validate        Full Phase 1–3 validation suite"
+	@echo "  make validate        Full validation (preserves development data)"
 	@echo ""
 	@echo "Ops:"
 	@echo "  make migrate         Run Alembic upgrade head (Docker backend)"
@@ -48,6 +62,7 @@ dev:
 up:
 	docker compose up -d --build
 
+# Volumes are preserved. Never add -v here.
 down:
 	docker compose down
 
@@ -63,18 +78,47 @@ backend-logs:
 frontend-logs:
 	docker compose logs -f frontend
 
-test: test-backend test-frontend
+test-services-up:
+	@docker network create cortexa-test-net >/dev/null 2>&1 || true
+	@docker volume create cortexa_postgres_test_data >/dev/null 2>&1 || true
+	$(COMPOSE_TEST) up -d postgres-test redis-test
+	@echo "test-services-up: waiting for healthy postgres-test/redis-test"
+	@for _ in $$(seq 1 60); do \
+		if $(COMPOSE_TEST) exec -T postgres-test pg_isready -U cortexa -d cortexa_agent_test >/dev/null 2>&1 \
+			&& $(COMPOSE_TEST) exec -T redis-test redis-cli ping 2>/dev/null | grep -q PONG; then \
+			echo "test-services-up: OK"; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "test-services-up: FAILED — services not healthy" >&2; \
+	exit 1
 
-test-backend:
-	@if docker compose ps --status running backend 2>/dev/null | grep -q backend; then \
-		docker compose exec -T backend pytest; \
-	else \
-		cd backend && pytest; \
-	fi
+test-db-migrate:
+	@./scripts/migrate_test_database.sh
+
+# Backend pytest ALWAYS uses the isolated test Compose project.
+# Never: docker compose exec backend pytest (that wiped cortexa_agent).
+test-backend: test-services-up test-db-migrate
+	$(COMPOSE_TEST) run --rm backend-test "pytest"
+
+test-services-down:
+	# Stops test containers only. Keeps cortexa_postgres_test_data.
+	# Never touches development cortexa_postgres_data.
+	$(COMPOSE_TEST) down
+	@echo "test-services-down: OK (test volume retained)"
+
+test-services-reset:
+	# Removes ONLY explicitly named test volumes. Never development volumes.
+	$(COMPOSE_TEST) down
+	@docker volume rm cortexa_postgres_test_data 2>/dev/null || true
+	@echo "test-services-reset: OK (removed cortexa_postgres_test_data only)"
+
+test: test-backend test-frontend
 
 test-frontend:
 	@if docker compose ps --status running frontend 2>/dev/null | grep -q frontend; then \
-		docker compose exec -T frontend npm test -- --run; \
+		docker compose exec -T -u cortexa frontend npm test -- --run; \
 	else \
 		cd frontend && npm test -- --run; \
 	fi
@@ -121,7 +165,18 @@ ready:
 
 compose-config:
 	docker compose config >/dev/null
-	@echo "docker compose config: OK"
+	@$(COMPOSE_TEST) config >/dev/null
+	@echo "docker compose config: OK (dev + test)"
+
+compose-identity:
+	@./scripts/check_compose_identity.sh
+
+auth-hostname:
+	@./scripts/check_auth_hostname.sh
+
+# Destructive — not part of normal workflows. Requires typed confirmation.
+reset-dev-database:
+	@./scripts/reset_dev_database.sh
 
 secrets-check:
 	@if command -v rg >/dev/null 2>&1; then \
@@ -141,8 +196,19 @@ secrets-check:
 	fi
 	@echo "secrets-check: OK"
 
-validate: compose-config secrets-check
+validate-preserve-before:
+	@./scripts/verify_validation_preserves_dev_data.sh before
+
+validate-preserve-after:
+	@./scripts/verify_validation_preserves_dev_data.sh after
+
+validate-preserve-compare:
+	@./scripts/verify_validation_preserves_dev_data.sh compare
+
+validate: compose-config compose-identity auth-hostname secrets-check validate-preserve-before
 	@./scripts/validate-phase1.sh
+	@$(MAKE) validate-preserve-after
+	@$(MAKE) validate-preserve-compare
 
 clean:
 	rm -rf backend/.pytest_cache backend/.mypy_cache backend/.ruff_cache backend/**/__pycache__

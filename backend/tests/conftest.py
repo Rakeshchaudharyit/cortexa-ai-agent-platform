@@ -13,7 +13,13 @@ import pytest
 from app.api.deps import get_current_active_user
 from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, clear_settings_cache
-from app.db.session import get_session_factory, init_engine, reset_engine_state
+from app.db.session import get_engine, get_session_factory, init_engine, reset_engine_state
+from app.db.test_safety import (
+    DEFAULT_TEST_IDENTITY,
+    assert_database_url_is_safe_for_tests,
+    assert_redis_url_is_safe_for_tests,
+    assert_safe_test_session,
+)
 from app.documents.chunking import ChunkingConfig, ChunkingService
 from app.documents.extraction import ExtractionService
 from app.main import create_app
@@ -70,25 +76,41 @@ def settings(
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     monkeypatch.setenv("BACKEND_HOST", "0.0.0.0")
     monkeypatch.setenv("BACKEND_PORT", "8000")
+    # Isolated test database only — never cortexa_agent / development identity.
     monkeypatch.setenv("POSTGRES_HOST", os.environ.get("POSTGRES_HOST", "localhost"))
-    monkeypatch.setenv("POSTGRES_PORT", os.environ.get("POSTGRES_PORT", "5432"))
-    monkeypatch.setenv("POSTGRES_DB", "cortexa_agent")
-    monkeypatch.setenv("POSTGRES_USER", "cortexa")
-    monkeypatch.setenv("POSTGRES_PASSWORD", "local_development_only")
-    # Prefer Compose DATABASE_URL (postgres host) when running inside Docker.
+    monkeypatch.setenv("POSTGRES_PORT", os.environ.get("POSTGRES_PORT", "15433"))
+    monkeypatch.setenv("POSTGRES_DB", "cortexa_agent_test")
+    monkeypatch.setenv("POSTGRES_USER", os.environ.get("POSTGRES_USER", "cortexa"))
+    monkeypatch.setenv(
+        "POSTGRES_PASSWORD",
+        os.environ.get("POSTGRES_PASSWORD", "local_test_only"),
+    )
+    # Prefer backend-test Compose DATABASE_URL when present; otherwise host-published
+    # postgres-test on 15433. Never fall back to cortexa_agent.
     database_url = os.environ.get(
         "DATABASE_URL",
-        "postgresql+asyncpg://cortexa:local_development_only@localhost:5432/cortexa_agent",
+        "postgresql+asyncpg://cortexa:local_test_only@localhost:15433/cortexa_agent_test",
     )
+    assert_database_url_is_safe_for_tests(database_url)
     monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setenv("REDIS_HOST", os.environ.get("REDIS_HOST", "localhost"))
+    monkeypatch.setenv("REDIS_HOST", os.environ.get("REDIS_HOST", "redis-test"))
     monkeypatch.setenv("REDIS_PORT", os.environ.get("REDIS_PORT", "6379"))
-    monkeypatch.setenv("REDIS_DB", "0")
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("REDIS_DB", os.environ.get("REDIS_DB", "0"))
+    redis_url = os.environ.get("REDIS_URL", "redis://redis-test:6379/0")
+    # When running pytest on the host against published redis-test (16380), callers
+    # must set REDIS_URL explicitly. Default assumes Compose service DNS.
+    if "localhost" in redis_url or "127.0.0.1" in redis_url:
+        # Host default: published redis-test port, non-colliding with dev 16379.
+        if redis_url in {
+            "redis://localhost:6379/0",
+            "redis://127.0.0.1:6379/0",
+        }:
+            redis_url = "redis://127.0.0.1:16380/1"
+    assert_redis_url_is_safe_for_tests(redis_url)
     monkeypatch.setenv("REDIS_URL", redis_url)
     monkeypatch.setenv(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:13000",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:13000,http://127.0.0.1:13000",
     )
     monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:13000")
     monkeypatch.setenv(
@@ -115,6 +137,12 @@ def settings(
     )
     monkeypatch.setenv("PASSWORD_RESET_DELIVERY_PROVIDER", "development")
     monkeypatch.setenv("PASSWORD_RESET_DEV_EXPOSE_TOKEN", "false")
+    monkeypatch.setenv("PASSWORD_RESET_DEV_NOTICE_ENABLED", "true")
+    monkeypatch.setenv("EXPECTED_APPLICATION_ID", "cortexa-ai-agent-platform")
+    monkeypatch.setenv("EXPECTED_DATABASE_IDENTITY", DEFAULT_TEST_IDENTITY)
+    monkeypatch.setenv("DATABASE_IDENTITY_CHECK_ENABLED", "true")
+    monkeypatch.setenv("LEGACY_DB_MIGRATION_ALLOW_PRODUCTION", "false")
+    monkeypatch.setenv("ADMIN_USER_CLI_ALLOW_PRODUCTION", "false")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
@@ -297,44 +325,51 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
         yield async_client
 
 
+_CLEANUP_STATEMENTS = (
+    "DELETE FROM message_citations",
+    "DELETE FROM messages",
+    "DELETE FROM conversations",
+    "DELETE FROM document_chunks",
+    "DELETE FROM documents",
+    "DELETE FROM password_reset_tokens",
+    "DELETE FROM refresh_sessions",
+    "DELETE FROM users",
+)
+
+
+async def _cleanup_test_tables(session: Any) -> None:
+    """Delete rows only after live connection proves we are on cortexa_agent_test."""
+    await assert_safe_test_session(session, expected_identity=DEFAULT_TEST_IDENTITY)
+    for statement in _CLEANUP_STATEMENTS:
+        await session.execute(text(statement))
+    await session.commit()
+
+
 @pytest.fixture
 async def db_engine(settings: Settings) -> AsyncIterator[None]:
-    """Initialize DB engine against Compose Postgres for auth integration tests."""
+    """Initialize DB engine against isolated test Postgres only."""
+    assert_database_url_is_safe_for_tests(settings.database_url)
+    assert_redis_url_is_safe_for_tests(settings.redis_url)
     init_engine(settings)
-    engine = init_engine(settings)
+    engine = get_engine()
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"PostgreSQL unavailable for auth tests: {exc}")
+        pytest.skip(f"PostgreSQL test database unavailable: {exc}")
     yield
     reset_engine_state()
 
 
 @pytest.fixture
 async def db_session(db_engine: None) -> AsyncIterator[Any]:
+    _ = db_engine
     factory = get_session_factory()
     async with factory() as session:
-        # Isolate integration tests without dropping schema.
-        await session.execute(text("DELETE FROM message_citations"))
-        await session.execute(text("DELETE FROM messages"))
-        await session.execute(text("DELETE FROM conversations"))
-        await session.execute(text("DELETE FROM document_chunks"))
-        await session.execute(text("DELETE FROM documents"))
-        await session.execute(text("DELETE FROM password_reset_tokens"))
-        await session.execute(text("DELETE FROM refresh_sessions"))
-        await session.execute(text("DELETE FROM users"))
-        await session.commit()
+        # Isolate integration tests without dropping schema. Hard-guarded.
+        await _cleanup_test_tables(session)
         yield session
-        await session.execute(text("DELETE FROM message_citations"))
-        await session.execute(text("DELETE FROM messages"))
-        await session.execute(text("DELETE FROM conversations"))
-        await session.execute(text("DELETE FROM document_chunks"))
-        await session.execute(text("DELETE FROM documents"))
-        await session.execute(text("DELETE FROM password_reset_tokens"))
-        await session.execute(text("DELETE FROM refresh_sessions"))
-        await session.execute(text("DELETE FROM users"))
-        await session.commit()
+        await _cleanup_test_tables(session)
 
 
 @pytest.fixture

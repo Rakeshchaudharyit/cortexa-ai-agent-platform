@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Phase 1 validation suite — fails on first error.
+# Phase 1–5.1 validation suite — fails on first error.
+# Backend pytest runs ONLY against cortexa_agent_test via docker-compose.test.yml.
+# Development cortexa_agent must remain unmodified (enforced by preserve scripts).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+COMPOSE_TEST=(env COMPOSE_IGNORE_ORPHANS=1 docker compose -p cortexa-test -f docker-compose.test.yml)
 
 # Load host port overrides from `.env` without sourcing free-form values
 # (APP_NAME and similar may contain spaces and are unsafe to `source`).
@@ -28,31 +32,33 @@ fi
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
-echo "==> docker compose config"
+echo "==> docker compose config (development)"
 docker compose config >/dev/null
+echo "OK"
+
+echo "==> docker compose config (test)"
+"${COMPOSE_TEST[@]}" config >/dev/null
 echo "OK"
 
 echo "==> secrets check"
 make secrets-check
 
-echo "==> alembic upgrade head"
-docker compose exec -T backend alembic upgrade head
+echo "==> alembic current/heads (development — read-only check)"
 docker compose exec -T backend alembic current
+docker compose exec -T backend alembic heads
 
-if docker compose ps --status running backend 2>/dev/null | grep -q backend; then
-  echo "==> backend pytest (docker)"
-  docker compose exec -T backend pytest
-  echo "==> backend ruff check (docker)"
-  docker compose exec -T backend ruff check .
-  echo "==> backend ruff format --check (docker)"
-  docker compose exec -T backend ruff format --check .
-  echo "==> backend mypy (docker)"
-  docker compose exec -T backend mypy app
-else
-  echo "==> backend checks require a running backend container"
-  echo "    Run: docker compose up -d --build"
-  exit 1
-fi
+echo "==> isolated test services up + migrate cortexa_agent_test"
+make test-services-up
+make test-db-migrate
+
+echo "==> backend pytest (isolated cortexa_agent_test ONLY)"
+"${COMPOSE_TEST[@]}" run --rm backend-test "pytest"
+echo "==> backend ruff check (isolated runner)"
+"${COMPOSE_TEST[@]}" run --rm --no-deps backend-test "ruff check ."
+echo "==> backend ruff format --check (isolated runner)"
+"${COMPOSE_TEST[@]}" run --rm --no-deps backend-test "ruff format --check ."
+echo "==> backend mypy (isolated runner)"
+"${COMPOSE_TEST[@]}" run --rm --no-deps backend-test "mypy app"
 
 if docker compose ps --status running frontend 2>/dev/null | grep -q frontend; then
   # Run as the cortexa app user so root-owned build artifacts do not break
@@ -93,38 +99,25 @@ else
   exit 1
 fi
 
-echo "==> health endpoint"
+echo "==> health endpoint (development — read-only)"
 curl -fsS "http://localhost:${BACKEND_PORT}/health" >/dev/null
 curl -fsS "http://localhost:${BACKEND_PORT}/health/live" >/dev/null
 echo "OK"
 
-echo "==> ready endpoint"
+echo "==> ready endpoint (development — read-only)"
 curl -fsS "http://localhost:${BACKEND_PORT}/ready" >/dev/null
 curl -fsS "http://localhost:${BACKEND_PORT}/health/ready" >/dev/null
 echo "OK"
 
-echo "==> system info endpoint"
+echo "==> system info endpoint (development — read-only)"
 curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/system/info" >/dev/null
 echo "OK"
 
-echo "==> llm status endpoint"
+echo "==> llm status endpoint (development — read-only)"
 curl -fsS "http://localhost:${BACKEND_PORT}/api/v1/llm/status" >/dev/null
 echo "OK"
 
-echo "==> auth register/login/me smoke"
-COOKIE_JAR="$(mktemp)"
-REGISTER_EMAIL="validate-$(date +%s)@example.com"
-curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"${REGISTER_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"confirm_password\":\"StrongDemoPassword123!\",\"full_name\":\"Validate User\"}" \
-  >/tmp/cortexa-auth-register.json
-ACCESS_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-auth-register.json"))["access_token"])')"
-curl -fsS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  "http://localhost:${BACKEND_PORT}/api/v1/auth/me" >/dev/null
-curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/refresh" >/tmp/cortexa-auth-refresh.json
-ACCESS_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-auth-refresh.json"))["access_token"])')"
+echo "==> anonymous LLM generate must be 401 (development — no writes)"
 ANON_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
   -X POST "http://localhost:${BACKEND_PORT}/api/v1/llm/generate" \
   -H "Content-Type: application/json" \
@@ -133,43 +126,11 @@ if [[ "${ANON_CODE}" != "401" ]]; then
   echo "expected anonymous LLM generate to return 401, got ${ANON_CODE}"
   exit 1
 fi
-AUTH_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/llm/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"hi"}]}')"
-if [[ "${AUTH_CODE}" == "401" ]]; then
-  echo "authenticated LLM generate must not return 401, got ${AUTH_CODE}"
-  exit 1
-fi
-curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/logout" >/dev/null
-rm -f "${COOKIE_JAR}" /tmp/cortexa-auth-register.json /tmp/cortexa-auth-refresh.json
 echo "OK"
 
-echo "==> conversations empty-list smoke"
-COOKIE_JAR="$(mktemp)"
-CONV_EMAIL="validate-conv-$(date +%s)@example.com"
-curl -fsS -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"${CONV_EMAIL}\",\"password\":\"StrongDemoPassword123!\",\"confirm_password\":\"StrongDemoPassword123!\",\"full_name\":\"Conv User\"}" \
-  >/tmp/cortexa-conv-register.json
-CONV_TOKEN="$(python3 -c 'import json; print(json.load(open("/tmp/cortexa-conv-register.json"))["access_token"])')"
-CONV_LIST="$(curl -fsS -H "Authorization: Bearer ${CONV_TOKEN}" \
-  "http://localhost:${BACKEND_PORT}/api/v1/conversations")"
-python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("total")==0 and d.get("items")==[], d' "${CONV_LIST}"
-CONV_CREATE_CODE="$(curl -s -o /tmp/cortexa-conv-create.json -w "%{http_code}" \
-  -H "Authorization: Bearer ${CONV_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -X POST "http://localhost:${BACKEND_PORT}/api/v1/conversations" \
-  -d '{}')"
-if [[ "${CONV_CREATE_CODE}" != "201" ]]; then
-  echo "expected conversation create 201, got ${CONV_CREATE_CODE}"
-  exit 1
-fi
-rm -f "${COOKIE_JAR}" /tmp/cortexa-conv-register.json /tmp/cortexa-conv-create.json
-echo "OK"
+# Auth register/login/conversation smoke previously wrote validate-* users into
+# cortexa_agent and was wiped by pytest DELETE FROM users. Auth lifecycle is
+# covered by isolated backend pytest against cortexa_agent_test instead.
 
 echo "==> frontend HTTP"
 curl -fsS "http://localhost:${FRONTEND_PORT}/" >/dev/null
@@ -187,5 +148,9 @@ echo "==> frontend .next cache safety"
 ./scripts/check_frontend_cache_safety.sh
 echo "OK"
 
+echo "==> stop isolated test services (retain test volume; never -v on development)"
+make test-services-down
+
 echo ""
 echo "Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 validation: PASSED"
+echo "(development database was not used for pytest cleanup)"

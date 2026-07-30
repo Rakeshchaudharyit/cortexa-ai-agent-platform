@@ -49,7 +49,7 @@ class HealthService:
         redis_message: str | None = "Redis unavailable"
 
         if self.engine is not None:
-            db_ok, db_message = await check_database(self.engine)
+            db_ok, db_message = await check_database(self.engine, self.settings)
         if self.redis is not None:
             redis_ok, redis_message = await check_redis(self.redis)
 
@@ -81,5 +81,9 @@ class HealthService:
                 memory=True,
                 tools=False,
                 voice=False,
+                password_reset_dev_notice=(
+                    self.settings.password_reset_dev_notice_enabled
+                    and not self.settings.is_production
+                ),
             ),
         )

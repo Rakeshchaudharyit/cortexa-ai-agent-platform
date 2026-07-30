@@ -625,11 +625,17 @@ def test_cli_production_refuses(monkeypatch: pytest.MonkeyPatch, settings: Setti
 
     _ = settings
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("PASSWORD_RESET_DEV_NOTICE_ENABLED", "false")
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "production-grade-cortexa-jwt-secret-key-at-least-32",
+    )
     clear_settings_cache()
     try:
         code = cli_mod.main(["--email", "anyone@example.com"])
     finally:
         monkeypatch.setenv("APP_ENV", "test")
+        monkeypatch.setenv("PASSWORD_RESET_DEV_NOTICE_ENABLED", "true")
         clear_settings_cache()
     assert code == 2
 

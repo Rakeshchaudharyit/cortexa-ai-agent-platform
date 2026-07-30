@@ -1,5 +1,6 @@
 """ORM models."""
 
+from app.models.application_metadata import ApplicationMetadata
 from app.models.conversation import (
     DEFAULT_CONVERSATION_TITLE,
     Conversation,
@@ -21,6 +22,7 @@ from app.models.user import User
 
 __all__ = [
     "DEFAULT_CONVERSATION_TITLE",
+    "ApplicationMetadata",
     "Conversation",
     "ConversationStatus",
     "Document",

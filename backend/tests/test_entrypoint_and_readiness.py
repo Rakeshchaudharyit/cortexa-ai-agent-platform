@@ -150,7 +150,7 @@ async def test_readiness_fails_when_conversations_table_missing(
             new_callable=AsyncMock,
             return_value=(True, None),
         ):
-            db_ok, db_message = await check_database(engine)
+            db_ok, db_message = await check_database(engine, settings)
     assert db_ok is False
     assert db_message == "Database schema incomplete"
 
@@ -193,7 +193,7 @@ async def test_check_database_requires_phase5_tables(
     _ = db_engine
     init_engine(settings)
     engine = get_engine()
-    ok, message = await check_database(engine)
+    ok, message = await check_database(engine, settings)
     assert ok is True
     assert message is None
     assert "conversations" in REQUIRED_CONVERSATION_TABLES

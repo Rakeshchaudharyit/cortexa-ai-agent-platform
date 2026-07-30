@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from app.db.test_safety import assert_safe_test_session
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from sqlalchemy import inspect, text
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 async def test_password_reset_table_indexes_and_cascade(
     db_session: AsyncSession,
 ) -> None:
+    await assert_safe_test_session(db_session)
     connection = await db_session.connection()
 
     def _inspect(sync_conn):  # type: ignore[no-untyped-def]
@@ -79,9 +81,10 @@ def test_migration_chain_includes_password_reset() -> None:
     script = ScriptDirectory.from_config(cfg)
     revisions = {rev.revision for rev in script.walk_revisions()}
     assert "0005_password_reset" in revisions
+    assert "0006_database_identity" in revisions
     assert "0004_phase5_conversations" in revisions
     head = script.get_current_head()
-    assert head == "0005_password_reset"
+    assert head == "0006_database_identity"
 
 
 def test_orm_model_fields_align() -> None:

@@ -29,6 +29,7 @@ class FeatureFlags(BaseModel):
     memory: bool = False
     tools: bool = False
     voice: bool = False
+    password_reset_dev_notice: bool = False
 
 
 class SystemInfoResponse(BaseModel):

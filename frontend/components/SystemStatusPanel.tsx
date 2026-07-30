@@ -285,7 +285,8 @@ export function SystemStatusPanel() {
             API feature flags: ollama={String(info.features.ollama)}, auth=
             {String(info.features.auth)}, rag={String(info.features.rag)}, memory=
             {String(info.features.memory)}, tools={String(info.features.tools)}, voice=
-            {String(info.features.voice)}
+            {String(info.features.voice)}, password_reset_dev_notice=
+            {String(Boolean(info.features.password_reset_dev_notice))}
           </p>
         ) : null}
       </section>

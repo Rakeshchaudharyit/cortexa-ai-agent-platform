@@ -52,6 +52,30 @@ class Settings(BaseSettings):
     postgres_user: str = Field(default="cortexa", alias="POSTGRES_USER")
     postgres_password: str = Field(default="local_development_only", alias="POSTGRES_PASSWORD")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    expected_application_id: str = Field(
+        default="cortexa-ai-agent-platform",
+        alias="EXPECTED_APPLICATION_ID",
+    )
+    expected_database_identity: str = Field(
+        default="cortexa-agent-development",
+        alias="EXPECTED_DATABASE_IDENTITY",
+    )
+    database_identity_check_enabled: bool = Field(
+        default=True,
+        alias="DATABASE_IDENTITY_CHECK_ENABLED",
+    )
+    legacy_db_migration_allow_production: bool = Field(
+        default=False,
+        alias="LEGACY_DB_MIGRATION_ALLOW_PRODUCTION",
+    )
+    admin_user_cli_allow_production: bool = Field(
+        default=False,
+        alias="ADMIN_USER_CLI_ALLOW_PRODUCTION",
+    )
+    password_reset_dev_notice_enabled: bool = Field(
+        default=True,
+        alias="PASSWORD_RESET_DEV_NOTICE_ENABLED",
+    )
 
     # Redis
     redis_host: str = Field(default="localhost", alias="REDIS_HOST")
@@ -597,6 +621,10 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_COOKIE_SECURE must be true when SameSite=None")
             if self.password_reset_dev_expose_token:
                 raise ValueError("PASSWORD_RESET_DEV_EXPOSE_TOKEN must be false in production")
+            if self.password_reset_dev_notice_enabled:
+                raise ValueError("PASSWORD_RESET_DEV_NOTICE_ENABLED must be false in production")
+            if not self.database_identity_check_enabled:
+                raise ValueError("DATABASE_IDENTITY_CHECK_ENABLED must be true in production")
         # Ensure frontend origin is always an allowed CORS origin.
         if self.frontend_origin not in self.cors_allowed_origins:
             self.cors_allowed_origins = [*self.cors_allowed_origins, self.frontend_origin]
@@ -633,6 +661,10 @@ class Settings(BaseSettings):
             "password_reset_max_active_tokens": self.password_reset_max_active_tokens,
             "password_reset_request_cooldown_seconds": self.password_reset_request_cooldown_seconds,
             "password_reset_delivery_provider": self.password_reset_delivery_provider,
+            "password_reset_dev_notice_enabled": self.password_reset_dev_notice_enabled,
+            "expected_application_id": self.expected_application_id,
+            "expected_database_identity": self.expected_database_identity,
+            "database_identity_check_enabled": self.database_identity_check_enabled,
             "llm_provider": self.llm_provider,
             "ollama_model": self.ollama_model,
             "llm_max_input_characters": self.llm_max_input_characters,

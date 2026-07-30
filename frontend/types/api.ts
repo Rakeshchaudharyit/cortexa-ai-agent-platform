@@ -25,6 +25,7 @@ export type FeatureFlags = {
   memory: boolean;
   tools: boolean;
   voice: boolean;
+  password_reset_dev_notice?: boolean;
 };
 
 export type SystemInfoResponse = {

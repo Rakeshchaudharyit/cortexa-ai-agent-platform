@@ -91,4 +91,5 @@ async def test_system_info_ollama_feature_enabled(client: AsyncClient, app: Fast
         "memory": True,
         "tools": False,
         "voice": False,
+        "password_reset_dev_notice": True,
     }

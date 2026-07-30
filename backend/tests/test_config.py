@@ -92,3 +92,16 @@ def test_production_rejects_insecure_jwt_secret(monkeypatch: pytest.MonkeyPatch)
     )
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_production_requires_database_identity_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "production-grade-cortexa-jwt-secret-key-at-least-32",
+    )
+    monkeypatch.setenv("PASSWORD_RESET_DEV_NOTICE_ENABLED", "false")
+    monkeypatch.setenv("PASSWORD_RESET_DEV_EXPOSE_TOKEN", "false")
+    monkeypatch.setenv("DATABASE_IDENTITY_CHECK_ENABLED", "false")
+    with pytest.raises(ValidationError):
+        Settings()

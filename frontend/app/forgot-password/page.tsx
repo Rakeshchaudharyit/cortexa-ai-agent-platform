@@ -2,15 +2,43 @@
 
 import Link from "next/link";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { requestPasswordReset } from "@/services/auth";
+import { fetchSystemInfo } from "@/services/system";
+
+function publicDevNoticeEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_PASSWORD_RESET_DEV_NOTICE === "true";
+}
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Only show after backend confirms the feature flag (avoids sticky notice on fetch failure).
+  const [showDevNotice, setShowDevNotice] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!publicDevNoticeEnabled()) {
+        return;
+      }
+      const result = await fetchSystemInfo();
+      if (cancelled) {
+        return;
+      }
+      if (!result.ok) {
+        setShowDevNotice(false);
+        return;
+      }
+      setShowDevNotice(Boolean(result.data.features.password_reset_dev_notice));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -109,6 +137,19 @@ export default function ForgotPasswordPage() {
           {pending ? "Submitting…" : "Send reset instructions"}
         </button>
       </form>
+
+      {showDevNotice ? (
+        <aside
+          className="rounded-xl border border-amber-400/25 bg-amber-500/5 px-4 py-3 text-sm leading-relaxed text-amber-100/90"
+          data-testid="forgot-password-dev-notice"
+        >
+          <p className="font-medium text-amber-100">Local development notice</p>
+          <p className="mt-1 text-amber-100/80">
+            Email delivery is not configured in this local environment. Developers
+            can retrieve a generated reset link using the documented CLI.
+          </p>
+        </aside>
+      ) : null}
 
       <p className="text-sm text-slate-400">
         Remembered your password?{" "}

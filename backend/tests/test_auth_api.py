@@ -447,6 +447,153 @@ async def test_llm_with_auth_reaches_provider(auth_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_login_sets_development_refresh_cookie_flags(
+    auth_client: AsyncClient,
+    settings: Settings,
+) -> None:
+    await auth_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "cookie-flags@example.com",
+            "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
+            "full_name": "Cookie Flags",
+        },
+    )
+    auth_client.cookies.clear()
+    login = await auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "cookie-flags@example.com", "password": STRONG_PASSWORD},
+    )
+    assert login.status_code == 200
+    set_cookie = login.headers.get("set-cookie", "")
+    assert settings.auth_cookie_name in set_cookie
+    assert "HttpOnly" in set_cookie or "httponly" in set_cookie.lower()
+    assert f"Path={settings.auth_cookie_path}" in set_cookie
+    assert "SameSite=lax" in set_cookie or "samesite=lax" in set_cookie.lower()
+    assert "Secure;" not in set_cookie
+    assert "Domain=" not in set_cookie
+
+
+@pytest.mark.asyncio
+async def test_refresh_returns_access_token_and_user(
+    auth_client: AsyncClient,
+) -> None:
+    registered = await auth_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "refresh-user@example.com",
+            "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
+            "full_name": "Refresh User",
+        },
+    )
+    assert registered.status_code == 201
+    refresh = await auth_client.post("/api/v1/auth/refresh")
+    assert refresh.status_code == 200
+    body = refresh.json()
+    assert body["access_token"]
+    assert body["token_type"] == "bearer"
+    assert body["user"]["email"] == "refresh-user@example.com"
+    assert body["user"]["status"] == "active"
+    assert "password" not in body["user"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_cookie_path_allows_logout(
+    auth_client: AsyncClient,
+    settings: Settings,
+) -> None:
+    await auth_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "cookie-path@example.com",
+            "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
+            "full_name": "Cookie Path",
+        },
+    )
+    assert settings.auth_cookie_path.rstrip("/") in {"/api/v1/auth", "/api/v1/auth/"}
+    refresh = await auth_client.post("/api/v1/auth/refresh")
+    assert refresh.status_code == 200
+    logout = await auth_client.post("/api/v1/auth/logout")
+    assert logout.status_code == 200
+    again = await auth_client.post("/api/v1/auth/refresh")
+    assert again.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_replayed_refresh_token_rejected(
+    auth_client: AsyncClient,
+    settings: Settings,
+) -> None:
+    registered = await auth_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "replay-refresh@example.com",
+            "password": STRONG_PASSWORD,
+            "confirm_password": STRONG_PASSWORD,
+            "full_name": "Replay Refresh",
+        },
+    )
+    old_cookie = registered.cookies.get(settings.auth_cookie_name)
+    assert old_cookie
+    first = await auth_client.post("/api/v1/auth/refresh")
+    assert first.status_code == 200
+    # Replay the rotated (old) token explicitly.
+    auth_client.cookies.set(settings.auth_cookie_name, old_cookie)
+    replay = await auth_client.post("/api/v1/auth/refresh")
+    assert replay.status_code == 401
+    assert replay.json()["error"]["code"] in {
+        "invalid_refresh_token",
+        "refresh_token_reuse_detected",
+    }
+
+
+@pytest.mark.asyncio
+async def test_cors_credentials_for_127_origin(
+    auth_client: AsyncClient,
+) -> None:
+    response = await auth_client.options(
+        "/api/v1/auth/login",
+        headers={
+            "Origin": "http://127.0.0.1:13000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code in {200, 204}
+    assert response.headers.get("access-control-allow-credentials") == "true"
+    assert "http://127.0.0.1:13000" in response.headers.get(
+        "access-control-allow-origin",
+        "",
+    )
+
+
+@pytest.mark.asyncio
+async def test_production_cookie_keeps_secure_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTH_COOKIE_SECURE", "true")
+    monkeypatch.setenv("AUTH_COOKIE_SAMESITE", "lax")
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "production-test-jwt-secret-key-at-least-32-chars",
+    )
+    monkeypatch.setenv("PASSWORD_RESET_DEV_NOTICE_ENABLED", "false")
+    monkeypatch.setenv("PASSWORD_RESET_DEV_EXPOSE_TOKEN", "false")
+    monkeypatch.setenv("DATABASE_IDENTITY_CHECK_ENABLED", "true")
+    from app.core.config import Settings, clear_settings_cache
+
+    clear_settings_cache()
+    settings = Settings()
+    assert settings.auth_cookie_secure is True
+    assert settings.auth_cookie_samesite == "lax"
+    clear_settings_cache()
+
+
+@pytest.mark.asyncio
 async def test_raw_refresh_not_stored(
     auth_client: AsyncClient,
     settings: Settings,

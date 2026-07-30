@@ -32,7 +32,7 @@ export function AuthHeader() {
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {status === "authenticated" ? (
+        {status === "loading" ? null : status === "authenticated" ? (
           <>
             <Link
               href="/chat"

@@ -33,10 +33,37 @@ Access tokens are never stored in `localStorage` or `sessionStorage`. Refresh to
 | HttpOnly | `true` | Always |
 | Secure | `false` | Set `AUTH_COOKIE_SECURE=true` in production |
 | SameSite | `lax` | `AUTH_COOKIE_SAMESITE` |
-| Path | `/api/v1/auth` | Limits cookie scope |
+| Path | `/api/v1/auth` | Limits cookie scope to refresh/logout |
 | Domain | unset | Optional `AUTH_COOKIE_DOMAIN` |
 
 CORS uses explicit origins with `allow_credentials=True`. Wildcard origins are not used.
+
+### Hostname consistency (session persistence)
+
+Access tokens live **only in memory**. After a full page reload the frontend restores the session with `POST /api/v1/auth/refresh` and `credentials: "include"`.
+
+Browsers treat `localhost` and `127.0.0.1` as **different sites**. With `SameSite=Lax`, a refresh cookie set by `http://localhost:18000` is **not** sent on credentialed fetches from `http://127.0.0.1:13000`. Symptom: login works, reload shows “Not signed in”.
+
+**Rule:** use the same hostname for:
+
+- the URL you open in the browser
+- `NEXT_PUBLIC_API_BASE_URL`
+- `FRONTEND_ORIGIN`
+- `PASSWORD_RESET_FRONTEND_URL`
+
+Recommended local pair for this Compose publish map:
+
+- UI: `http://127.0.0.1:13000`
+- API: `http://127.0.0.1:18000`
+
+### Frontend bootstrap
+
+1. Auth starts in `loading` (“Restoring session…”) — Login/Register stay hidden.
+2. If no in-memory access token, call refresh (single-flight; shared with 401 retries).
+3. On success, store the new access token in memory and use the returned `user` (or `/me` if needed).
+4. Only then mark `authenticated` or `unauthenticated`.
+
+Refresh-token rotation is intentional. Concurrent duplicate refresh calls share one promise so Strict Mode / parallel 401s cannot revoke the family.
 
 ## Route protection
 
@@ -99,7 +126,10 @@ Development delivery Redis policy:
 - Key: `cortexa:pwd_reset:dev_delivery:` + HMAC-SHA256(normalized email) — no plaintext email in the key
 - Value: raw reset URL only (never stored in PostgreSQL)
 - TTL: `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` (seconds)
+
 ### Secure admin password CLI
+
+Preferred command for password-only updates:
 
 ```bash
 docker compose exec backend \
@@ -107,7 +137,38 @@ docker compose exec backend \
   --email user@example.com
 ```
 
-Prompts twice via `getpass`. Never accepts the password as a CLI argument. Revokes refresh sessions and active reset tokens.
+Prompts twice via `getpass`. Never accepts the password as a CLI argument. Revokes refresh sessions and active reset tokens. Always refuses `APP_ENV=production` (no override).
+
+### Secure create-user CLI
+
+Create a local development account (or reset an existing password only):
+
+```bash
+docker compose exec -it backend \
+  python -m app.cli.create_user \
+  --email user@example.com \
+  --name "User Name" \
+  --role admin
+```
+
+Reset password for an existing account without changing role or status (same security rules as `reset_password`; production always refused):
+
+```bash
+docker compose exec -it backend \
+  python -m app.cli.create_user \
+  --email user@example.com \
+  --reset-password
+```
+
+Behavior:
+
+- Prompts twice via `getpass`; never accepts the password as a CLI argument.
+- Normalizes email with the shared auth helper and hashes with Argon2 via `PasswordService`.
+- Refuses when the email already exists unless `--reset-password` is set.
+- `--reset-password` never changes role or status and revokes refresh sessions / reset tokens.
+- Creating users refuses `APP_ENV=production` unless `ADMIN_USER_CLI_ALLOW_PRODUCTION=true`.
+- `--reset-password` always refuses production (aligned with `reset_password`; no override).
+- Never prints the password or complete password hash.
 
 ### Frontend routes
 
@@ -121,6 +182,52 @@ Reset tokens are never written to `localStorage` / `sessionStorage`.
 ### Production email limitation
 
 `PASSWORD_RESET_DELIVERY_PROVIDER=development` is the only provider in Phase 5.1. Real SMTP / transactional email is a later deployment task. `PASSWORD_RESET_DEV_EXPOSE_TOKEN` must remain `false` in production.
+
+- Local development does **not** send email. Links are stored in Redis and retrieved with `python -m app.cli.get_password_reset_link`.
+- Unknown and existing emails receive identical public API responses.
+- When `NEXT_PUBLIC_PASSWORD_RESET_DEV_NOTICE=true` and the backend feature flag `password_reset_dev_notice` is enabled, `/forgot-password` shows a developer notice that email delivery is not configured. This does not reveal whether an account exists.
+- Production must set `PASSWORD_RESET_DEV_NOTICE_ENABLED=false` and `NEXT_PUBLIC_PASSWORD_RESET_DEV_NOTICE=false`.
+
+## Database identity and persistence
+
+Canonical local identity:
+
+| Item | Value |
+| --- | --- |
+| Compose project | `cortexa` (`name: cortexa` in `docker-compose.yml`) |
+| Database | `cortexa_agent` |
+| Volume | `cortexa_postgres_data` |
+| Identity key | `EXPECTED_DATABASE_IDENTITY=cortexa-agent-development` |
+
+Automated tests use a separate Compose project (`docker-compose.test.yml`):
+
+| Item | Value |
+| --- | --- |
+| Compose project | `cortexa-test` |
+| Database | `cortexa_agent_test` |
+| Volume | `cortexa_postgres_test_data` |
+| Identity key | `EXPECTED_DATABASE_IDENTITY=cortexa-agent-test` |
+| Redis | `redis-test` (no shared volume with development) |
+
+Pytest cleanup refuses any database that is not `*_test` and any identity other than `cortexa-agent-test`. Never run `docker compose exec backend pytest` against the development stack.
+
+Readiness verifies Alembic head, required tables, and `application_metadata` identity rows. A wrong or empty Cortexa database fails `/ready` instead of silently serving an empty app.
+
+`make down` never uses `-v`. Destructive reset is only `make reset-dev-database` (typed confirmation + backup attempt).
+
+Legacy recovery (dry-run by default):
+
+```bash
+docker compose exec backend \
+  python -m app.cli.migrate_legacy_database \
+  --source-url postgresql://cortexa@host.docker.internal:55432/cortexa \
+  --source-database cortexa \
+  --email user@example.com
+```
+
+Require `--apply` for writes. Refresh sessions and reset tokens are never migrated.
+
+Manual persistence checklist: `./scripts/manual_persistence_check.sh user@example.com`
 
 ## Troubleshooting login after registration
 

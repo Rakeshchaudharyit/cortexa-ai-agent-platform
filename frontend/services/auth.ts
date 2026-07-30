@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiRequest } from "@/lib/api";
 import { clearAccessToken, getAccessToken, setAccessToken } from "@/lib/auth-token";
+import { runSingleFlightRefresh } from "@/lib/refresh-coordinator";
 import type {
   AuthTokenResponse,
   LoginRequest,
@@ -42,15 +43,17 @@ export async function loginUser(
 export async function refreshSession(): Promise<
   { ok: true; data: AuthTokenResponse } | { ok: false; error: string; status: number | null }
 > {
-  const result = await apiPost<AuthTokenResponse>("/api/v1/auth/refresh", {
-    credentials: "include",
+  return runSingleFlightRefresh(async () => {
+    const result = await apiPost<AuthTokenResponse>("/api/v1/auth/refresh", {
+      credentials: "include",
+    });
+    if (result.ok) {
+      setAccessToken(result.data.access_token);
+    } else {
+      clearAccessToken();
+    }
+    return result;
   });
-  if (result.ok) {
-    setAccessToken(result.data.access_token);
-  } else {
-    clearAccessToken();
-  }
-  return result;
 }
 
 export async function logoutUser(): Promise<

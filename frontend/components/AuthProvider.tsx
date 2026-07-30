@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -38,12 +39,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<UserPublic | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const bootstrapGeneration = useRef(0);
 
   const restore = useCallback(async () => {
+    const generation = ++bootstrapGeneration.current;
     setStatus("loading");
+
     const existing = getAccessToken();
     if (existing) {
       const me = await fetchCurrentUser();
+      if (generation !== bootstrapGeneration.current) {
+        return;
+      }
       if (me.ok) {
         setUser(me.data);
         setStatus("authenticated");
@@ -52,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const refreshed = await refreshSession();
+    if (generation !== bootstrapGeneration.current) {
+      return;
+    }
     if (!refreshed.ok) {
       clearAccessToken();
       setUser(null);
@@ -59,7 +69,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Prefer user from refresh response; fall back to /me when absent.
+    if (refreshed.data.user) {
+      setUser(refreshed.data.user);
+      setStatus("authenticated");
+      return;
+    }
+
     const me = await fetchCurrentUser();
+    if (generation !== bootstrapGeneration.current) {
+      return;
+    }
     if (me.ok) {
       setUser(me.data);
       setStatus("authenticated");
@@ -77,6 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (body: LoginRequest) => {
     setError(null);
+    // Invalidate any in-flight bootstrap so a late refresh failure cannot
+    // overwrite a successful password login.
+    bootstrapGeneration.current += 1;
     const result = await loginUser(body);
     if (!result.ok) {
       let message = result.error || "Login failed";
@@ -94,7 +117,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       return { ok: false as const, error: message };
     }
-    // Successful password login must not be overwritten by a later refresh failure.
     setUser(result.data.user);
     setStatus("authenticated");
     setError(null);
@@ -103,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (body: RegisterRequest) => {
     setError(null);
+    bootstrapGeneration.current += 1;
     const result = await registerUser(body);
     if (!result.ok) {
       const message = result.error || "Registration failed";
@@ -117,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    bootstrapGeneration.current += 1;
     await logoutUser();
     setUser(null);
     setStatus("unauthenticated");

@@ -419,6 +419,27 @@ class Settings(BaseSettings):
         alias="CHAT_GENERAL_MODE_ENABLED",
     )
 
+    # Agent tools (Phase 6)
+    agent_tools_enabled: bool = Field(default=True, alias="AGENT_TOOLS_ENABLED")
+    agent_max_tool_iterations: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        alias="AGENT_MAX_TOOL_ITERATIONS",
+    )
+    agent_tool_timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        alias="AGENT_TOOL_TIMEOUT_SECONDS",
+    )
+    agent_max_result_bytes: int = Field(
+        default=32_768,
+        ge=1024,
+        le=1_048_576,
+        alias="AGENT_MAX_RESULT_BYTES",
+    )
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:
@@ -702,6 +723,10 @@ class Settings(BaseSettings):
             "conversation_auto_title_enabled": self.conversation_auto_title_enabled,
             "conversation_summary_enabled": self.conversation_summary_enabled,
             "chat_general_mode_enabled": self.chat_general_mode_enabled,
+            "agent_tools_enabled": self.agent_tools_enabled,
+            "agent_max_tool_iterations": self.agent_max_tool_iterations,
+            "agent_tool_timeout_seconds": self.agent_tool_timeout_seconds,
+            "agent_max_result_bytes": self.agent_max_result_bytes,
         }
 
 

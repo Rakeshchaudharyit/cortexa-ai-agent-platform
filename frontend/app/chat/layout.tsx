@@ -50,6 +50,13 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
           >
             Chat
           </Link>
+          <Link
+            href="/tools"
+            className="text-sm text-slate-300 hover:text-slate-100 transition"
+            data-testid="nav-tools"
+          >
+            Tools
+          </Link>
         </nav>
       </header>
 

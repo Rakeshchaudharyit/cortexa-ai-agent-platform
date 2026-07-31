@@ -144,6 +144,7 @@ See `.env.example`. Key variables:
   `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_CONNECT_TIMEOUT_SECONDS`,
   `LLM_MAX_INPUT_CHARACTERS`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_DEFAULT_TEMPERATURE`
 - Phase 5 conversations: `CONVERSATION_*`, `CHAT_GENERAL_MODE_ENABLED`, `CHAT_DEFAULT_*`, `MESSAGE_MAX_RESPONSE_TOKENS` (see `.env.example`)
+- Phase 6 agent tools: `AGENT_TOOLS_ENABLED`, `AGENT_MAX_TOOL_ITERATIONS`, `AGENT_TOOL_TIMEOUT_SECONDS`, `AGENT_MAX_RESULT_BYTES` (see `.env.example` and `docs/AGENT_TOOLS.md`)
 
 Security placeholders may exist but are not implemented yet.
 
@@ -302,10 +303,11 @@ Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
 
 ---
 
-## Current Limitations (Phase 5)
+## Current Limitations (Phase 6)
 
 - No cross-conversation or profile memory (only per-conversation rolling summary)
-- No agent tools or voice
+- Native Ollama tool calling depends on the installed model — do not assume it works without verification
+- No external SaaS tools, web browsing, shell, MCP, or voice
 - Document ingest remains synchronous (request-scoped); no background workers
 - PDF text extraction only (no OCR); encrypted PDFs rejected
 - Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)

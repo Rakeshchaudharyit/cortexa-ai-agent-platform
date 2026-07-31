@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.agents.orchestrator import AgentOrchestrator
 from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -30,7 +31,10 @@ from app.services.messages import MessageService
 from app.services.password_reset import PasswordResetService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
+from app.services.tools import ToolService
 from app.storage.local import LocalFilesystemStorage
+from app.tools.builtins import create_builtin_registry
+from app.tools.executor import ToolExecutor
 
 logger = logging.getLogger("cortexa.lifespan")
 
@@ -97,6 +101,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings=settings,
         conversation_service=conversation_service,
     )
+    tool_registry = create_builtin_registry()
+    tool_executor = ToolExecutor(
+        registry=tool_registry,
+        settings=settings,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service,
+    )
+    tool_service = ToolService(registry=tool_registry)
+    agent_orchestrator = AgentOrchestrator(
+        settings=settings,
+        llm_service=llm_service,
+        tool_registry=tool_registry,
+        tool_executor=tool_executor,
+    )
     chat_service = ChatService(
         settings=settings,
         conversation_service=conversation_service,
@@ -104,6 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         retrieval_service=retrieval_service,
         llm_service=llm_service,
         context_builder=ConversationContextBuilder(settings),
+        agent_orchestrator=agent_orchestrator,
     )
 
     app.state.settings = settings
@@ -125,6 +144,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.rag_service = rag_service
     app.state.conversation_service = conversation_service
     app.state.message_service = message_service
+    app.state.tool_registry = tool_registry
+    app.state.tool_executor = tool_executor
+    app.state.tool_service = tool_service
+    app.state.agent_orchestrator = agent_orchestrator
     app.state.chat_service = chat_service
     app.state.health_service = HealthService(
         settings=settings,

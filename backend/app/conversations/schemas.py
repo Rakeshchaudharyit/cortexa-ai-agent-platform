@@ -8,6 +8,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.tools.schemas import ToolExecutionSummary
+
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -106,6 +108,8 @@ class MessageResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     citations: list[MessageCitationResponse] = Field(default_factory=list)
+    tool_execution_ids: list[str] = Field(default_factory=list)
+    tool_executions: list[ToolExecutionSummary] = Field(default_factory=list)
 
 
 class ConversationDetailResponse(BaseModel):

@@ -82,9 +82,10 @@ def test_migration_chain_includes_password_reset() -> None:
     revisions = {rev.revision for rev in script.walk_revisions()}
     assert "0005_password_reset" in revisions
     assert "0006_database_identity" in revisions
+    assert "0007_agent_tools" in revisions
     assert "0004_phase5_conversations" in revisions
     head = script.get_current_head()
-    assert head == "0006_database_identity"
+    assert head == "0007_agent_tools"
 
 
 def test_orm_model_fields_align() -> None:

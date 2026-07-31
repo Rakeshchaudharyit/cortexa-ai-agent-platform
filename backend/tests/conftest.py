@@ -148,7 +148,7 @@ def settings(
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
     monkeypatch.setenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("OLLAMA_CONNECT_TIMEOUT_SECONDS", "2")
-    monkeypatch.setenv("LLM_MAX_INPUT_CHARACTERS", "1000")
+    monkeypatch.setenv("LLM_MAX_INPUT_CHARACTERS", "32000")
     monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "256")
     monkeypatch.setenv("LLM_DEFAULT_TEMPERATURE", "0.2")
     # Phase 4 — documents / embeddings / RAG
@@ -326,6 +326,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 _CLEANUP_STATEMENTS = (
+    "DELETE FROM tool_executions",
     "DELETE FROM message_citations",
     "DELETE FROM messages",
     "DELETE FROM conversations",
@@ -468,6 +469,29 @@ def _wire_rag_services(
         summarizer=_fake_summarizer,
     )
 
+    from app.agents.orchestrator import AgentOrchestrator
+    from app.services.tools import ToolService
+    from app.tools.builtins import create_builtin_registry
+    from app.tools.executor import ToolExecutor
+
+    tool_registry = create_builtin_registry()
+    tool_executor = ToolExecutor(
+        registry=tool_registry,
+        settings=settings,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service,
+    )
+    tool_service = ToolService(registry=tool_registry)
+    agent_orchestrator = AgentOrchestrator(
+        settings=settings,
+        llm_service=llm_service,
+        tool_registry=tool_registry,
+        tool_executor=tool_executor,
+    )
+    # Keep tools off by default for existing chat compatibility tests.
+    # Tool-focused suites enable AGENT_TOOLS_ENABLED and rebind chat_service.
+    chat_service.agent_orchestrator = None
+
     application.state.health_service = StubHealthService(settings)
     application.state.auth_service = AuthService.from_settings(settings)
     fake_redis = FakeRedis()
@@ -491,6 +515,10 @@ def _wire_rag_services(
     application.state.rag_service = rag_service
     application.state.conversation_service = conversation_service
     application.state.message_service = message_service
+    application.state.tool_registry = tool_registry
+    application.state.tool_executor = tool_executor
+    application.state.tool_service = tool_service
+    application.state.agent_orchestrator = agent_orchestrator
     application.state.chat_service = chat_service
 
 

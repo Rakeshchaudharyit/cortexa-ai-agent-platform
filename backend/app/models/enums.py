@@ -50,3 +50,15 @@ class MessageStatus(StrEnum):
     complete = "complete"
     failed = "failed"
     cancelled = "cancelled"
+
+
+class ToolExecutionStatus(StrEnum):
+    """Lifecycle for audited agent tool executions."""
+
+    pending = "pending"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    denied = "denied"
+    timed_out = "timed_out"
+    cancelled = "cancelled"

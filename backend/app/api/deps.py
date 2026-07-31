@@ -24,6 +24,7 @@ from app.services.messages import MessageService
 from app.services.password_reset import PasswordResetService
 from app.services.rag import RagService
 from app.services.retrieval import RetrievalService
+from app.services.tools import ToolService
 
 logger = logging.getLogger("cortexa.auth.deps")
 
@@ -107,6 +108,13 @@ def get_message_service(request: Request) -> MessageService:
     return service
 
 
+def get_tool_service(request: Request) -> ToolService:
+    service = getattr(request.app.state, "tool_service", None)
+    if not isinstance(service, ToolService):
+        raise RuntimeError("Tool service is not configured")
+    return service
+
+
 async def get_current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
@@ -166,3 +174,4 @@ EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)
 ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
+ToolServiceDep = Annotated[ToolService, Depends(get_tool_service)]

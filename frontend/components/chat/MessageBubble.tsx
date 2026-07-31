@@ -5,6 +5,7 @@ import { useState, useCallback } from "react";
 import type { ConversationMessage } from "@/types/api";
 import { CitationCard } from "@/components/chat/CitationCard";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
+import { ToolActivity } from "@/components/chat/ToolActivity";
 
 type Props = {
   message: ConversationMessage;
@@ -99,6 +100,13 @@ export function MessageBubble({ message, isStreaming, onEdit, onRegenerate }: Pr
             </>
           )}
         </div>
+
+        {/* Tool activity restored from history */}
+        {!isUser && (message.tool_executions?.length ?? 0) > 0 && (
+          <div className="w-full">
+            <ToolActivity items={message.tool_executions ?? []} />
+          </div>
+        )}
 
         {/* Citations */}
         {!isUser && message.citations.length > 0 && (

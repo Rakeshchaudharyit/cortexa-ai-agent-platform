@@ -6,6 +6,7 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +35,9 @@ from app.models.conversation import (
     MessageCitation,
 )
 from app.models.enums import ConversationStatus, MessageRole
+from app.models.tool_execution import ToolExecution
 from app.models.user import User
+from app.services.tools import execution_to_summary
 
 logger = logging.getLogger("cortexa.conversations")
 
@@ -76,9 +79,16 @@ def citation_to_response(citation: MessageCitation) -> MessageCitationResponse:
     )
 
 
-def message_to_response(message: Message) -> MessageResponse:
+def message_to_response(
+    message: Message,
+    *,
+    tool_executions: list[Any] | None = None,
+) -> MessageResponse:
     citations = [citation_to_response(item) for item in (message.citations or [])]
     citations.sort(key=lambda item: item.citation_index)
+    meta = message.message_metadata or {}
+    raw_ids = meta.get("tool_execution_ids") if isinstance(meta, dict) else None
+    tool_ids = [str(item) for item in raw_ids] if isinstance(raw_ids, list) else []
     return MessageResponse(
         id=message.id,
         conversation_id=message.conversation_id,
@@ -101,6 +111,8 @@ def message_to_response(message: Message) -> MessageResponse:
         created_at=message.created_at,
         updated_at=message.updated_at,
         citations=citations,
+        tool_execution_ids=tool_ids,
+        tool_executions=list(tool_executions or []),
     )
 
 
@@ -279,6 +291,25 @@ class ConversationService:
         ).all()
         messages = list(reversed(newest))
 
+        message_ids = [item.id for item in messages]
+        executions_by_message: dict[uuid.UUID, list[Any]] = {mid: [] for mid in message_ids}
+        if message_ids:
+            exec_rows = (
+                await session.scalars(
+                    select(ToolExecution)
+                    .where(
+                        ToolExecution.user_id == user.id,
+                        ToolExecution.message_id.in_(message_ids),
+                    )
+                    .order_by(ToolExecution.created_at.asc())
+                )
+            ).all()
+            for row in exec_rows:
+                if row.message_id is not None:
+                    executions_by_message.setdefault(row.message_id, []).append(
+                        execution_to_summary(row)
+                    )
+
         scope = None
         if conversation.default_document_scope is not None:
             scope = [uuid.UUID(str(item)) for item in conversation.default_document_scope]
@@ -295,7 +326,13 @@ class ConversationService:
             title_is_auto=conversation.title_is_auto,
             summary=conversation.summary,
             default_document_scope=scope,
-            messages=[message_to_response(item) for item in messages],
+            messages=[
+                message_to_response(
+                    item,
+                    tool_executions=executions_by_message.get(item.id, []),
+                )
+                for item in messages
+            ],
             has_more_messages=total_messages > len(messages),
         )
 

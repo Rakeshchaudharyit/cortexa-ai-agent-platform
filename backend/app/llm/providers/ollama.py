@@ -28,6 +28,7 @@ from app.llm.schemas import (
     StreamEvent,
     StreamEventType,
     TokenUsage,
+    ToolCallRequest,
 )
 
 logger = logging.getLogger("cortexa.llm.ollama")
@@ -68,13 +69,79 @@ class OllamaProvider:
     def _resolve_model(self, request: GenerateRequest) -> str:
         return (request.model or self._settings.ollama_model).strip()
 
-    def _build_messages(self, request: GenerateRequest) -> list[dict[str, str]]:
-        messages: list[dict[str, str]] = []
+    def _build_messages(self, request: GenerateRequest) -> list[dict[str, Any]]:
+        """Build Ollama chat messages, including optional tool call/result fields.
+
+        Native tool calling depends on the installed model. When the model does
+        not support tools, Ollama may ignore the ``tools`` field or return plain
+        text — callers must not assume success without validation.
+        """
+        messages: list[dict[str, Any]] = []
         if request.system:
             messages.append({"role": MessageRole.system.value, "content": request.system})
         for message in request.messages:
-            messages.append({"role": message.role.value, "content": message.content})
+            entry: dict[str, Any] = {
+                "role": message.role.value,
+                "content": message.content or "",
+            }
+            if message.tool_calls:
+                entry["tool_calls"] = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": call.arguments,
+                        },
+                    }
+                    for call in message.tool_calls
+                ]
+            if message.tool_call_id:
+                entry["tool_call_id"] = message.tool_call_id
+            if message.name:
+                entry["name"] = message.name
+            messages.append(entry)
         return messages
+
+    def _build_tools_payload(self, request: GenerateRequest) -> list[dict[str, Any]] | None:
+        if not request.tools:
+            return None
+        return [tool.model_dump(mode="json") for tool in request.tools]
+
+    def _parse_tool_calls(self, message: Mapping[str, Any]) -> list[ToolCallRequest]:
+        raw = message.get("tool_calls")
+        if not isinstance(raw, list):
+            return []
+        parsed: list[ToolCallRequest] = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, Mapping):
+                continue
+            function = item.get("function")
+            if not isinstance(function, Mapping):
+                continue
+            name = function.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    loaded = json.loads(arguments)
+                    arguments = loaded if isinstance(loaded, dict) else {}
+                except ValueError:
+                    arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            call_id = item.get("id")
+            if not isinstance(call_id, str) or not call_id.strip():
+                call_id = f"call_{index}"
+            parsed.append(
+                ToolCallRequest(
+                    id=call_id,
+                    name=name.strip(),
+                    arguments=arguments,
+                )
+            )
+        return parsed
 
     def _options(self, request: GenerateRequest) -> dict[str, Any]:
         temperature = (
@@ -235,6 +302,11 @@ class OllamaProvider:
             "stream": False,
             "options": self._options(request),
         }
+        tools_payload = self._build_tools_payload(request)
+        if tools_payload is not None:
+            body["tools"] = tools_payload
+            if request.tool_choice:
+                body["tool_choice"] = request.tool_choice
 
         try:
             response = await self._http.post(f"{self._base_url}/api/chat", json=body)
@@ -276,6 +348,12 @@ class OllamaProvider:
         if not isinstance(message, Mapping):
             raise LLMInvalidResponseError("Ollama response missing message content")
         content = message.get("content")
+        tool_calls = self._parse_tool_calls(message)
+        if content is None:
+            if tool_calls:
+                content = ""
+            else:
+                raise LLMInvalidResponseError("Ollama response missing message content")
         if not isinstance(content, str):
             raise LLMInvalidResponseError("Ollama response missing message content")
 
@@ -284,12 +362,16 @@ class OllamaProvider:
         finish_reason = payload.get("done_reason")
         if finish_reason is not None and not isinstance(finish_reason, str):
             finish_reason = None
+        if tool_calls and not finish_reason:
+            finish_reason = "tool_calls"
 
         logger.info(
-            "llm_generate_success provider=%s model=%s latency_ms=%s request_id=%s",
+            "llm_generate_success provider=%s model=%s latency_ms=%s "
+            "tool_calls=%s request_id=%s",
             self.name,
             model,
             latency_ms,
+            len(tool_calls),
             request_id,
         )
         return GenerateResponse(
@@ -299,6 +381,7 @@ class OllamaProvider:
             finish_reason=finish_reason,
             usage=usage,
             latency_ms=latency_ms,
+            tool_calls=tool_calls,
         )
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[StreamEvent]:
@@ -323,6 +406,11 @@ class OllamaProvider:
             "stream": True,
             "options": self._options(request),
         }
+        tools_payload = self._build_tools_payload(request)
+        if tools_payload is not None:
+            body["tools"] = tools_payload
+            if request.tool_choice:
+                body["tool_choice"] = request.tool_choice
 
         try:
             async with self._http.stream(

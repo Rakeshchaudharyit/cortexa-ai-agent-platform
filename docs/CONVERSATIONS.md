@@ -1,6 +1,8 @@
 # Conversations & Multi-Turn Chat (Phase 5)
 
-Phase 5 adds **persistent, user-owned conversations** with multi-turn RAG chat, SSE streaming, edit/regenerate flows, rolling summaries, and a Next.js `/chat` UI. It builds on Phase 4 documents and retrieval; it is **not** cross-conversation memory, agent tools, or org-wide shared chat.
+Phase 5 adds **persistent, user-owned conversations** with multi-turn RAG chat, SSE streaming, edit/regenerate flows, rolling summaries, and a Next.js `/chat` UI. It builds on Phase 4 documents and retrieval; it is **not** cross-conversation memory or org-wide shared chat.
+
+**Phase 6** extends the same chat flow with optional agent tools (see [AGENT_TOOLS.md](AGENT_TOOLS.md)). When `AGENT_TOOLS_ENABLED=true`, the orchestrator may emit additional SSE tool events while preserving `start` / `delta` / `citation` / `complete` compatibility.
 
 See also: [RAG.md](RAG.md), [AUTHENTICATION.md](AUTHENTICATION.md), [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -277,4 +279,5 @@ See `.env.example` for `CONVERSATION_*`, `CHAT_*`, and related RAG limits.
 - **Token usage fields may be null** depending on Ollama response metadata.
 - **Deleted conversations are not restorable.**
 - Edit does not chain into automatic regeneration.
-- No org/tenant shared conversations; no agent tools in this phase.
+- No org/tenant shared conversations.
+- Agent tools are covered in Phase 6 ([AGENT_TOOLS.md](AGENT_TOOLS.md)).

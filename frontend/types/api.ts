@@ -223,6 +223,72 @@ export type ConversationMessage = {
   created_at: string;
   updated_at: string;
   citations: MessageCitation[];
+  tool_execution_ids?: string[];
+  tool_executions?: ToolExecutionSummary[];
+};
+
+export type ToolDefinition = {
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  requires_confirmation: boolean;
+  enabled: boolean;
+  parameters: Record<string, unknown>;
+};
+
+export type ToolListResponse = {
+  tools: ToolDefinition[];
+  total: number;
+};
+
+export type ToolExecutionStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "denied"
+  | "timed_out"
+  | "cancelled";
+
+export type ToolExecutionSummary = {
+  id: string;
+  tool_name: string;
+  tool_version: string;
+  status: ToolExecutionStatus | string;
+  conversation_id: string | null;
+  message_id: string | null;
+  arguments_summary: Record<string, unknown> | null;
+  result_summary: Record<string, unknown> | null;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  created_at: string;
+};
+
+export type ToolExecutionDetail = ToolExecutionSummary & {
+  arguments_json: Record<string, unknown> | null;
+  result_json: Record<string, unknown> | null;
+  correlation_id: string | null;
+};
+
+export type ToolExecutionListResponse = {
+  items: ToolExecutionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ToolActivityItem = {
+  id: string;
+  tool_name: string;
+  status: "started" | "running" | "succeeded" | "failed";
+  arguments?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error_message?: string | null;
+  execution_id?: string | null;
 };
 
 export type ConversationDetail = {
@@ -286,11 +352,45 @@ export type SSEMetadataData = {
   completion_tokens: number | null;
   total_tokens: number | null;
   latency_ms: number | null;
+  tool_execution_ids?: string[];
 };
 
 export type SSECompleteData = { message: ConversationMessage };
 
 export type SSEErrorData = { error: { code: string; message: string } };
+
+export type SSEToolCallStartedData = {
+  tool_call_id: string;
+  tool_name: string;
+  iteration?: number;
+};
+
+export type SSEToolCallArgumentsData = {
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+};
+
+export type SSEToolExecutionStartedData = {
+  execution_id: string;
+  tool_call_id?: string;
+  tool_name: string;
+};
+
+export type SSEToolExecutionSucceededData = {
+  execution_id: string | null;
+  tool_call_id?: string;
+  tool_name: string;
+  result?: Record<string, unknown>;
+};
+
+export type SSEToolExecutionFailedData = {
+  execution_id: string | null;
+  tool_call_id?: string;
+  tool_name: string;
+  error_code?: string;
+  error_message?: string;
+};
 
 export type SSEEvent =
   | { event: "start"; data: SSEStartData }
@@ -298,4 +398,14 @@ export type SSEEvent =
   | { event: "citation"; data: SSECitationData }
   | { event: "metadata"; data: SSEMetadataData }
   | { event: "complete"; data: SSECompleteData }
-  | { event: "error"; data: SSEErrorData };
+  | { event: "error"; data: SSEErrorData }
+  | { event: "agent_started"; data: Record<string, unknown> }
+  | { event: "tool_call_started"; data: SSEToolCallStartedData }
+  | { event: "tool_call_arguments"; data: SSEToolCallArgumentsData }
+  | { event: "tool_execution_started"; data: SSEToolExecutionStartedData }
+  | { event: "tool_execution_succeeded"; data: SSEToolExecutionSucceededData }
+  | { event: "tool_execution_failed"; data: SSEToolExecutionFailedData }
+  | { event: "assistant_token"; data: SSEDeltaData }
+  | { event: "assistant_completed"; data: { content: string } }
+  | { event: "agent_completed"; data: Record<string, unknown> }
+  | { event: "agent_failed"; data: SSEErrorData };

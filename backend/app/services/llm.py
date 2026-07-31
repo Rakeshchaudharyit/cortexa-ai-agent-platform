@@ -43,7 +43,10 @@ class LLMService:
         if request.system:
             total_chars += len(request.system)
         for message in request.messages:
-            total_chars += len(message.content)
+            total_chars += len(message.content or "")
+            if message.tool_calls:
+                for call in message.tool_calls:
+                    total_chars += len(call.name) + len(str(call.arguments))
         if total_chars > self.settings.llm_max_input_characters:
             from fastapi import status
 

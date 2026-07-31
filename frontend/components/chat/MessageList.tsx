@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ConversationMessage, MessageCitation } from "@/types/api";
+import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { ToolActivity } from "@/components/chat/ToolActivity";
 
 type StreamingState = {
   content: string;
   citations: MessageCitation[];
   userMessageId: string | null;
   assistantMessageId: string | null;
+  toolActivity: ToolActivityItem[];
 };
 
 type Props = {
@@ -30,24 +32,25 @@ export function MessageList({
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll on new content.
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, streaming?.content]);
+  }, [messages.length, streaming?.content, streaming?.toolActivity?.length]);
 
-  // Find the latest user and assistant messages.
   const userMessages = messages.filter((m) => m.role === "user" && m.is_active);
   const assistantMessages = messages.filter((m) => m.role === "assistant" && m.is_active);
   const latestUserMsgId = userMessages.at(-1)?.id;
   const latestAssistantMsgId = assistantMessages.at(-1)?.id;
 
-  // Build a synthetic streaming assistant message to display during streaming.
+  const showStreamingBubble = Boolean(
+    streaming && (streaming.assistantMessageId || streaming.toolActivity.length > 0 || streaming.content),
+  );
+
   const streamingMsg: ConversationMessage | null =
-    streaming && streaming.assistantMessageId
+    streaming && showStreamingBubble
       ? {
-          id: streaming.assistantMessageId,
+          id: streaming.assistantMessageId || "streaming-assistant",
           conversation_id: "",
           role: "assistant",
           content: streaming.content,
@@ -68,6 +71,7 @@ export function MessageList({
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           citations: streaming.citations,
+          tool_executions: [],
         }
       : null;
 
@@ -120,7 +124,12 @@ export function MessageList({
         />
       ))}
 
-      {/* Streaming message — assistant text building live */}
+      {streaming && streaming.toolActivity.length > 0 && (
+        <div className="max-w-[80%]">
+          <ToolActivity items={streaming.toolActivity} />
+        </div>
+      )}
+
       {streamingMsg && (
         <MessageBubble key="streaming" message={streamingMsg} isStreaming />
       )}

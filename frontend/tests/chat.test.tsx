@@ -726,6 +726,7 @@ describe("MessageList", () => {
           citations: [],
           userMessageId: "u1",
           assistantMessageId: "ast-temp",
+          toolActivity: [],
         }}
       />,
     );

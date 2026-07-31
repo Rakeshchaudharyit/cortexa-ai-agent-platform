@@ -249,7 +249,7 @@ async def test_generate_invalid_upstream_maps_to_502(settings: Settings) -> None
 async def test_generate_rejects_oversized_input(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/llm/generate",
-        json={"messages": [{"role": "user", "content": "x" * 1001}]},
+        json={"messages": [{"role": "user", "content": "x" * 32001}]},
     )
     assert response.status_code == 422
     payload = response.json()

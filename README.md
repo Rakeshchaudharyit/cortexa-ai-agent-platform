@@ -4,11 +4,16 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 5.1 — Authentication repair (password reset) + Phase 5 conversations
+> **Current status:** Phase 6 — Agent tools and function calling
 >
-> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication with password reset, document ingestion, grounded Q&A, and the `/chat` conversation UI are runnable.
+> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication,
+> document RAG, multi-turn chat, and built-in agent tools (calculator, datetime,
+> knowledge search, conversation summary) are runnable.
 >
-> Cross-conversation memory, agent tools, voice, and organization/tenant management are **not** implemented.
+> Cross-conversation long-term memory, external SaaS tools, voice, and organization/tenant
+> management are **not** implemented.
+
+See [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) for the Phase 6 tool architecture.
 
 ---
 

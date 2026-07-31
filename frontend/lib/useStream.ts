@@ -10,14 +10,30 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { SSEEvent, SSECompleteData, SSEMetadataData } from "@/types/api";
+import type {
+  SSEEvent,
+  SSECompleteData,
+  SSEMetadataData,
+  SSEStartData,
+  SSEToolCallArgumentsData,
+  SSEToolCallStartedData,
+  SSEToolExecutionFailedData,
+  SSEToolExecutionStartedData,
+  SSEToolExecutionSucceededData,
+} from "@/types/api";
 
 export type StreamCallbacks = {
+  onStart?: (data: SSEStartData) => void;
   onDelta: (content: string) => void;
   onCitation: (citation: SSEEvent & { event: "citation" }) => void;
   onComplete: (data: SSECompleteData) => void;
   onMetadata?: (data: SSEMetadataData) => void;
   onError: (message: string) => void;
+  onToolCallStarted?: (data: SSEToolCallStartedData) => void;
+  onToolCallArguments?: (data: SSEToolCallArgumentsData) => void;
+  onToolExecutionStarted?: (data: SSEToolExecutionStartedData) => void;
+  onToolExecutionSucceeded?: (data: SSEToolExecutionSucceededData) => void;
+  onToolExecutionFailed?: (data: SSEToolExecutionFailedData) => void;
 };
 
 type StreamState = "idle" | "streaming" | "done" | "error";
@@ -48,7 +64,11 @@ export function useStream() {
           if (controller.signal.aborted) break;
 
           switch (event.event) {
+            case "start":
+              callbacks.onStart?.(event.data);
+              break;
             case "delta":
+            case "assistant_token":
               callbacks.onDelta(event.data.content);
               break;
             case "citation":
@@ -62,8 +82,24 @@ export function useStream() {
               setState("done");
               break;
             case "error":
+            case "agent_failed":
               callbacks.onError(event.data.error.message);
               setState("error");
+              break;
+            case "tool_call_started":
+              callbacks.onToolCallStarted?.(event.data);
+              break;
+            case "tool_call_arguments":
+              callbacks.onToolCallArguments?.(event.data);
+              break;
+            case "tool_execution_started":
+              callbacks.onToolExecutionStarted?.(event.data);
+              break;
+            case "tool_execution_succeeded":
+              callbacks.onToolExecutionSucceeded?.(event.data);
+              break;
+            case "tool_execution_failed":
+              callbacks.onToolExecutionFailed?.(event.data);
               break;
             default:
               break;

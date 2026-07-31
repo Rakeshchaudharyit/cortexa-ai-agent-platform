@@ -13,6 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.agents.orchestrator import AgentOrchestrator
+from app.agents.schemas import AgentRunConfig
 from app.conversations.context import ConversationContextBuilder
 from app.conversations.exceptions import (
     DuplicateClientRequestError,
@@ -75,6 +77,7 @@ class ChatService:
         *,
         title_generator: TitleGenerator | None = None,
         summarizer: Summarizer | None = None,
+        agent_orchestrator: AgentOrchestrator | None = None,
     ) -> None:
         self.settings = settings
         self.conversation_service = conversation_service
@@ -84,6 +87,11 @@ class ChatService:
         self.context_builder = context_builder or ConversationContextBuilder(settings)
         self.title_generator = title_generator
         self.summarizer = summarizer
+        self.agent_orchestrator = agent_orchestrator
+
+    @property
+    def tools_enabled(self) -> bool:
+        return bool(self.settings.agent_tools_enabled and self.agent_orchestrator is not None)
 
     async def send_message(
         self,
@@ -667,6 +675,68 @@ class ChatService:
             if max_tokens is not None
             else self.settings.message_max_response_tokens,
         )
+
+        if self.tools_enabled:
+            assert self.agent_orchestrator is not None
+            try:
+                agent_result = await self.agent_orchestrator.run(
+                    session=session,
+                    user=user,
+                    messages=built.messages,
+                    system=built.system,
+                    conversation_id=conversation.id,
+                    message_id=assistant.id,
+                    allowed_document_ids=document_ids,
+                    config=AgentRunConfig(
+                        max_iterations=self.settings.agent_max_tool_iterations,
+                        temperature=generate_request.temperature,
+                        max_tokens=generate_request.max_tokens,
+                    ),
+                )
+            except AppError as exc:
+                await self.message_service.fail_assistant(
+                    session,
+                    assistant,
+                    error_code=exc.code,
+                )
+                raise
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            meta = {
+                "tool_execution_ids": agent_result.tool_execution_ids,
+                "agent_iterations": agent_result.iterations,
+            }
+            assistant.message_metadata = {
+                **(assistant.message_metadata or {}),
+                **meta,
+            }
+            finalized = await self.message_service.finalize_assistant(
+                session,
+                assistant,
+                content=agent_result.content,
+                grounded=True if citations else (None if general_mode else False),
+                model=agent_result.model or self.llm_service.provider.default_model,
+                provider=agent_result.provider or self.llm_service.provider.name,
+                prompt_tokens=agent_result.prompt_tokens,
+                completion_tokens=agent_result.completion_tokens,
+                total_tokens=agent_result.total_tokens,
+                latency_ms=latency_ms,
+                finish_reason=agent_result.finish_reason,
+                citations=citations,
+            )
+            logger.info(
+                "generation_completed user_id=%s conversation_id=%s message_id=%s "
+                "latency_ms=%s tools=%s request_id=%s",
+                user.id,
+                conversation.id,
+                assistant.id,
+                latency_ms,
+                len(agent_result.tool_execution_ids),
+                request_id,
+            )
+            await self._maybe_update_title(session, conversation, user_message, finalized)
+            await self._maybe_update_summary(session, conversation, user)
+            return finalized
+
         try:
             generation = await self.llm_service.generate(generate_request)
         except AppError as exc:
@@ -842,6 +912,143 @@ class ChatService:
             if max_tokens is not None
             else self.settings.message_max_response_tokens,
         )
+
+        if self.tools_enabled:
+            assert self.agent_orchestrator is not None
+            accumulated = ""
+            agent_meta: dict[str, Any] = {}
+            tool_execution_ids: list[str] = []
+            try:
+                async for event in self.agent_orchestrator.stream(
+                    session=session,
+                    user=user,
+                    messages=built.messages,
+                    system=built.system,
+                    conversation_id=conversation.id,
+                    message_id=assistant.id,
+                    allowed_document_ids=document_ids,
+                    config=AgentRunConfig(
+                        max_iterations=self.settings.agent_max_tool_iterations,
+                        temperature=generate_request.temperature,
+                        max_tokens=generate_request.max_tokens,
+                    ),
+                ):
+                    if event.event == StreamEventType.delta:
+                        chunk = str(event.data.get("content") or "")
+                        accumulated += chunk
+                        yield event
+                    elif event.event == StreamEventType.agent_completed:
+                        agent_meta = event.data
+                        tool_execution_ids = [
+                            str(x) for x in (event.data.get("tool_execution_ids") or [])
+                        ]
+                        yield event
+                    elif event.event in {
+                        StreamEventType.agent_failed,
+                        StreamEventType.error,
+                    }:
+                        await self.message_service.fail_assistant(
+                            session,
+                            assistant,
+                            error_code=str(
+                                (event.data.get("error") or {}).get("code")
+                                or event.data.get("code")
+                                or "agent_failed"
+                            ),
+                            partial_content=accumulated,
+                        )
+                        await session.commit()
+                        yield event
+                        return
+                    else:
+                        yield event
+            except AppError as exc:
+                await self.message_service.fail_assistant(
+                    session,
+                    assistant,
+                    error_code=exc.code,
+                    partial_content=accumulated,
+                )
+                await session.commit()
+                yield StreamEvent(
+                    event=StreamEventType.error,
+                    data={"error": {"code": exc.code, "message": exc.message}},
+                )
+                return
+            except Exception:
+                await self.message_service.fail_assistant(
+                    session,
+                    assistant,
+                    error_code="stream_error",
+                    partial_content=accumulated,
+                )
+                await session.commit()
+                logger.exception(
+                    "stream_unexpected_failure conversation_id=%s message_id=%s request_id=%s",
+                    conversation.id,
+                    assistant.id,
+                    request_id,
+                )
+                yield StreamEvent(
+                    event=StreamEventType.error,
+                    data={
+                        "error": {
+                            "code": "conversation_stream_error",
+                            "message": "Streaming generation failed",
+                        }
+                    },
+                )
+                return
+
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            agent_usage = agent_meta.get("usage") or {}
+            assistant.message_metadata = {
+                **(assistant.message_metadata or {}),
+                "tool_execution_ids": tool_execution_ids,
+                "agent_iterations": agent_meta.get("iterations"),
+            }
+            finalized = await self.message_service.finalize_assistant(
+                session,
+                assistant,
+                content=accumulated,
+                grounded=True if citations else (None if general_mode else False),
+                model=str(agent_meta.get("model") or self.llm_service.provider.default_model),
+                provider=str(agent_meta.get("provider") or self.llm_service.provider.name),
+                prompt_tokens=agent_usage.get("prompt_tokens"),
+                completion_tokens=agent_usage.get("completion_tokens"),
+                total_tokens=agent_usage.get("total_tokens"),
+                latency_ms=latency_ms,
+                finish_reason=str(agent_meta.get("finish_reason") or "stop"),
+                citations=citations,
+            )
+            await self._maybe_update_title(session, conversation, user_message, finalized)
+            await self._maybe_update_summary(session, conversation, user)
+            await session.commit()
+            finalized = (
+                await session.scalar(
+                    select(Message)
+                    .where(Message.id == finalized.id)
+                    .options(selectinload(Message.citations))
+                )
+                or finalized
+            )
+            yield StreamEvent(
+                event=StreamEventType.metadata,
+                data={
+                    "model": finalized.model,
+                    "provider": finalized.provider,
+                    "prompt_tokens": finalized.prompt_tokens,
+                    "completion_tokens": finalized.completion_tokens,
+                    "total_tokens": finalized.total_tokens,
+                    "latency_ms": latency_ms,
+                    "tool_execution_ids": tool_execution_ids,
+                },
+            )
+            yield StreamEvent(
+                event=StreamEventType.complete,
+                data={"message": message_to_response(finalized).model_dump(mode="json")},
+            )
+            return
 
         accumulated = ""
         final_meta: dict[str, Any] = {}

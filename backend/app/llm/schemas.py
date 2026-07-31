@@ -12,18 +12,49 @@ class MessageRole(str, Enum):
     system = "system"
     user = "user"
     assistant = "assistant"
+    tool = "tool"
+
+
+class ToolCallRequest(BaseModel):
+    """Tool call attached to an assistant message (provider-neutral)."""
+
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=64)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatMessage(BaseModel):
     role: MessageRole
-    content: str = Field(min_length=1, max_length=100_000)
+    content: str = Field(default="", max_length=100_000)
+    tool_calls: list[ToolCallRequest] | None = None
+    tool_call_id: str | None = Field(default=None, max_length=128)
+    name: str | None = Field(default=None, max_length=64)
 
     @field_validator("content")
     @classmethod
-    def content_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Message content cannot be blank")
+    def content_rules(cls, value: str) -> str:
         return value
+
+    @model_validator(mode="after")
+    def validate_message_shape(self) -> ChatMessage:
+        if self.role == MessageRole.tool:
+            if not self.tool_call_id:
+                raise ValueError("tool messages require tool_call_id")
+            if not self.content.strip():
+                raise ValueError("tool message content cannot be blank")
+            return self
+        if self.tool_calls:
+            return self
+        if not self.content.strip():
+            raise ValueError("Message content cannot be blank")
+        return self
+
+
+class ProviderToolSpec(BaseModel):
+    """Minimal provider tool schema wrapper."""
+
+    type: str = "function"
+    function: dict[str, Any]
 
 
 class GenerateRequest(BaseModel):
@@ -58,6 +89,16 @@ class GenerateRequest(BaseModel):
         max_length=16,
         description="Optional stop sequences.",
     )
+    tools: list[ProviderToolSpec] | None = Field(
+        default=None,
+        max_length=32,
+        description="Optional provider-compatible tool schemas.",
+    )
+    tool_choice: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Optional tool choice hint (auto/none/required).",
+    )
 
     @field_validator("system")
     @classmethod
@@ -85,8 +126,6 @@ class GenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_user_or_assistant_content(self) -> GenerateRequest:
-        # At least one non-system conversational message should exist once system
-        # is merged; allow pure system+user/assistant combinations already present.
         if not self.messages and self.system is None:
             raise ValueError("At least one message is required")
         return self
@@ -101,10 +140,15 @@ class TokenUsage(BaseModel):
 class GenerateResponse(BaseModel):
     provider: str
     model: str
-    content: str
+    content: str = ""
     finish_reason: str | None = None
     usage: TokenUsage | None = None
     latency_ms: float | None = None
+    tool_calls: list[ToolCallRequest] = Field(default_factory=list)
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return bool(self.tool_calls)
 
 
 class LLMStatus(str, Enum):
@@ -130,6 +174,17 @@ class StreamEventType(str, Enum):
     metadata = "metadata"
     complete = "complete"
     error = "error"
+    # Phase 6 agent/tool lifecycle (backward-compatible additions)
+    agent_started = "agent_started"
+    tool_call_started = "tool_call_started"
+    tool_call_arguments = "tool_call_arguments"
+    tool_execution_started = "tool_execution_started"
+    tool_execution_succeeded = "tool_execution_succeeded"
+    tool_execution_failed = "tool_execution_failed"
+    assistant_token = "assistant_token"
+    assistant_completed = "assistant_completed"
+    agent_completed = "agent_completed"
+    agent_failed = "agent_failed"
 
 
 class StreamEvent(BaseModel):

@@ -26,6 +26,9 @@ REQUIRED_CONVERSATION_TABLES: tuple[str, ...] = (
 
 REQUIRED_IDENTITY_TABLES: tuple[str, ...] = ("application_metadata",)
 
+# Phase 6 agent tool audit persistence.
+REQUIRED_TOOL_TABLES: tuple[str, ...] = ("tool_executions",)
+
 
 def _alembic_config() -> Config:
     """Locate alembic.ini relative to the installed app package or /app."""
@@ -60,8 +63,8 @@ def _check_migration_head(connection: Connection) -> tuple[bool, str | None]:
 
 
 async def check_required_tables(engine: AsyncEngine) -> tuple[bool, str | None]:
-    """Verify Phase 5 conversation tables and identity metadata exist."""
-    required = (*REQUIRED_CONVERSATION_TABLES, *REQUIRED_IDENTITY_TABLES)
+    """Verify conversation, identity, and tool audit tables exist."""
+    required = (*REQUIRED_CONVERSATION_TABLES, *REQUIRED_IDENTITY_TABLES, *REQUIRED_TOOL_TABLES)
     try:
         async with engine.connect() as connection:
             stmt = text(

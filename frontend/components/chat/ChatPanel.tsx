@@ -10,7 +10,7 @@ import {
   streamMessage,
 } from "@/services/conversations";
 import { useStream } from "@/lib/useStream";
-import type { ConversationMessage, MessageCitation } from "@/types/api";
+import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { MessageList } from "@/components/chat/MessageList";
 
@@ -19,6 +19,7 @@ type StreamingState = {
   citations: MessageCitation[];
   userMessageId: string | null;
   assistantMessageId: string | null;
+  toolActivity: ToolActivityItem[];
 };
 
 type Props = {
@@ -91,10 +92,17 @@ export function ChatPanel({ conversationId }: Props) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       citations: [],
+      tool_executions: [],
     };
     setMessages((prev) => [...prev, tempUserMsg]);
 
-    setStreaming({ content: "", citations: [], userMessageId: null, assistantMessageId: null });
+    setStreaming({
+      content: "",
+      citations: [],
+      userMessageId: null,
+      assistantMessageId: null,
+      toolActivity: [],
+    });
 
     await run(
       (signal) =>
@@ -104,6 +112,17 @@ export function ChatPanel({ conversationId }: Props) {
           signal,
         ),
       {
+        onStart: (data) => {
+          setStreaming((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  userMessageId: data.user_message_id,
+                  assistantMessageId: data.assistant_message_id,
+                }
+              : null,
+          );
+        },
         onDelta: (delta) => {
           setStreaming((prev) =>
             prev ? { ...prev, content: prev.content + delta } : null,
@@ -116,17 +135,107 @@ export function ChatPanel({ conversationId }: Props) {
               : null,
           );
         },
-        onComplete: (data) => {
-          // Replace temp user message + insert real messages.
-          setMessages((prev) => {
-            const without = prev.filter((m) => !m.id.startsWith("temp-user-"));
-            // Check if we already have these messages.
-            const hasUser = without.some((m) => m.id === data.message.id);
-            // data.message is the assistant message from "complete" event.
-            return [...without, ...(hasUser ? [] : [data.message])];
+        onToolCallStarted: (data) => {
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            const existing = prev.toolActivity.find((t) => t.id === data.tool_call_id);
+            if (existing) return prev;
+            return {
+              ...prev,
+              toolActivity: [
+                ...prev.toolActivity,
+                {
+                  id: data.tool_call_id,
+                  tool_name: data.tool_name,
+                  status: "started",
+                },
+              ],
+            };
           });
+        },
+        onToolCallArguments: (data) => {
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              toolActivity: prev.toolActivity.map((item) =>
+                item.id === data.tool_call_id
+                  ? { ...item, arguments: data.arguments }
+                  : item,
+              ),
+            };
+          });
+        },
+        onToolExecutionStarted: (data) => {
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            const byCall = prev.toolActivity.find((t) => t.id === data.tool_call_id);
+            if (byCall) {
+              return {
+                ...prev,
+                toolActivity: prev.toolActivity.map((item) =>
+                  item.id === data.tool_call_id
+                    ? {
+                        ...item,
+                        status: "running",
+                        execution_id: data.execution_id,
+                      }
+                    : item,
+                ),
+              };
+            }
+            return {
+              ...prev,
+              toolActivity: [
+                ...prev.toolActivity,
+                {
+                  id: data.execution_id,
+                  tool_name: data.tool_name,
+                  status: "running",
+                  execution_id: data.execution_id,
+                },
+              ],
+            };
+          });
+        },
+        onToolExecutionSucceeded: (data) => {
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              toolActivity: prev.toolActivity.map((item) =>
+                item.id === data.tool_call_id || item.execution_id === data.execution_id
+                  ? {
+                      ...item,
+                      status: "succeeded",
+                      result: data.result,
+                      execution_id: data.execution_id,
+                    }
+                  : item,
+              ),
+            };
+          });
+        },
+        onToolExecutionFailed: (data) => {
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              toolActivity: prev.toolActivity.map((item) =>
+                item.id === data.tool_call_id || item.execution_id === data.execution_id
+                  ? {
+                      ...item,
+                      status: "failed",
+                      error_message: data.error_message,
+                      execution_id: data.execution_id,
+                    }
+                  : item,
+              ),
+            };
+          });
+        },
+        onComplete: () => {
           setStreaming(null);
-          // Reload full conversation to get both messages with correct IDs.
           void loadConversation(id);
         },
         onMetadata: () => {
@@ -135,7 +244,6 @@ export function ChatPanel({ conversationId }: Props) {
         onError: (msg) => {
           setStreaming(null);
           setError(msg);
-          // Remove temp user message on error.
           setMessages((prev) => prev.filter((m) => !m.id.startsWith("temp-user-")));
         },
       },
@@ -148,7 +256,6 @@ export function ChatPanel({ conversationId }: Props) {
       setError(result.error);
       return;
     }
-    // Reload to get refreshed state.
     await loadConversation(conversationId);
   }
 
@@ -163,7 +270,6 @@ export function ChatPanel({ conversationId }: Props) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden" data-testid="chat-panel">
-      {/* Error banner */}
       {error && (
         <div
           className="flex items-center justify-between border-b border-rose-500/20 bg-rose-500/10 px-4 py-2"
@@ -182,21 +288,17 @@ export function ChatPanel({ conversationId }: Props) {
         </div>
       )}
 
-      {/* Message history */}
       <MessageList
         messages={messages}
         streaming={streaming}
         onEdit={handleEdit}
         onRegenerate={handleRegenerate}
         loading={loading}
-        error={null}
       />
 
-      {/* Composer */}
       <ChatComposer
-        disabled={loading}
+        onSend={handleSend}
         isStreaming={isStreaming}
-        onSend={(content, docIds) => void handleSend(content, docIds)}
         onCancel={cancel}
       />
     </div>

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Sequence
+from dataclasses import dataclass, field
 
 from app.llm.exceptions import (
     LLMGenerationError,
@@ -19,13 +20,24 @@ from app.llm.schemas import (
     StreamEvent,
     StreamEventType,
     TokenUsage,
+    ToolCallRequest,
 )
+
+
+@dataclass
+class FakeLLMTurn:
+    """One scripted provider response for multi-turn agent tests."""
+
+    content: str = "fake completion"
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
+    finish_reason: str | None = None
 
 
 class FakeLLMProvider:
     """Test-only LLM provider with injectable outcomes.
 
     This is deliberately deterministic and must never be presented as a real LLM.
+    Supports scripted tool-call turns via ``scripted_turns`` or ``turn_factory``.
     """
 
     def __init__(
@@ -37,6 +49,8 @@ class FakeLLMProvider:
         model_available: bool = True,
         generate_content: str = "fake completion",
         fail_mode: str | None = None,
+        scripted_turns: Sequence[FakeLLMTurn] | None = None,
+        turn_factory: Callable[[GenerateRequest, int], FakeLLMTurn] | None = None,
     ) -> None:
         self._provider_name = provider_name
         self._model = model
@@ -46,6 +60,10 @@ class FakeLLMProvider:
         self.fail_mode = fail_mode
         self.generate_calls = 0
         self.stream_calls = 0
+        self.last_request: GenerateRequest | None = None
+        self.requests: list[GenerateRequest] = []
+        self._scripted_turns = list(scripted_turns or [])
+        self._turn_factory = turn_factory
 
     @property
     def name(self) -> str:
@@ -83,21 +101,38 @@ class FakeLLMProvider:
             message="Fake provider is ready",
         )
 
+    def _next_turn(self, request: GenerateRequest) -> FakeLLMTurn:
+        index = self.generate_calls - 1
+        if self._turn_factory is not None:
+            return self._turn_factory(request, index)
+        if index < len(self._scripted_turns):
+            return self._scripted_turns[index]
+        return FakeLLMTurn(content=self.generate_content, finish_reason="stop")
+
     async def generate(self, request: GenerateRequest) -> GenerateResponse:
         self.generate_calls += 1
+        self.last_request = request
+        self.requests.append(request)
         self._raise_if_configured()
         model = request.model or self._model
+        turn = self._next_turn(request)
+        finish = turn.finish_reason
+        if turn.tool_calls and not finish:
+            finish = "tool_calls"
         return GenerateResponse(
             provider=self.name,
             model=model,
-            content=self.generate_content,
-            finish_reason="stop",
+            content=turn.content,
+            finish_reason=finish or "stop",
             usage=TokenUsage(prompt_tokens=3, completion_tokens=2, total_tokens=5),
             latency_ms=1.5,
+            tool_calls=list(turn.tool_calls),
         )
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[StreamEvent]:
         self.stream_calls += 1
+        self.last_request = request
+        self.requests.append(request)
         model = request.model or self._model
         yield StreamEvent(
             event=StreamEventType.start,

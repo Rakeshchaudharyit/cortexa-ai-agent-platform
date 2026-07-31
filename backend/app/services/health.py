@@ -79,7 +79,7 @@ class HealthService:
                 auth=True,
                 rag=True,
                 memory=True,
-                tools=False,
+                tools=self.settings.agent_tools_enabled,
                 voice=False,
                 password_reset_dev_notice=(
                     self.settings.password_reset_dev_notice_enabled

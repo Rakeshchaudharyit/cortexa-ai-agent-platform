@@ -16,6 +16,7 @@ from app.conversations.schemas import (
     ConversationCreateRequest,
     ConversationDetailResponse,
     ConversationListResponse,
+    ConversationMemoryUpdateRequest,
     ConversationSummaryResponse,
     ConversationUpdateRequest,
     CreateMessageRequest,
@@ -125,6 +126,30 @@ async def rename_conversation(
         user,
         conversation_id,
         body.title,
+    )
+    await session.commit()
+    await session.refresh(conversation)
+    return conversation_to_summary(conversation)
+
+
+@router.patch(
+    "/{conversation_id}/memory",
+    response_model=ConversationSummaryResponse,
+    summary="Enable or disable long-term memory for this conversation",
+)
+async def update_conversation_memory(
+    conversation_id: uuid.UUID,
+    body: ConversationMemoryUpdateRequest,
+    session: DbSessionDep,
+    user: CurrentActiveUser,
+    conversations: ConversationServiceDep,
+) -> ConversationSummaryResponse:
+    conversation = await conversations.set_memory_enabled(
+        session,
+        user,
+        conversation_id,
+        memory_enabled=body.memory_enabled,
+        reason=body.reason,
     )
     await session.commit()
     await session.refresh(conversation)

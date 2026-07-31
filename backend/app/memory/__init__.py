@@ -1,7 +1,8 @@
-"""Long-term memory package — persistence foundation (Phase 7)."""
+"""Long-term memory package — user-controlled personalization across conversations."""
 
 from __future__ import annotations
 
+from app.memory.context import build_memory_context_block
 from app.memory.exceptions import (
     MemoryAmbiguousForgetError,
     MemoryDisabledError,
@@ -11,8 +12,11 @@ from app.memory.exceptions import (
     MemorySensitiveContentError,
     MemoryValidationError,
 )
-from app.memory.policies import default_settings_values, should_require_confirmation
+from app.memory.extractor import MemoryExtractor
+from app.memory.intent import detect_memory_intent
 from app.memory.repository import MemoryRepository
+from app.memory.retrieval import MemoryRetriever
+from app.memory.sanitizer import MemorySanitizer
 from app.memory.schemas import (
     MemoryCandidate,
     MemoryContextBlock,
@@ -25,6 +29,7 @@ from app.memory.schemas import (
     MemorySettingsUpdateRequest,
     RetrievedMemoryView,
 )
+from app.memory.service import MemoryService
 
 __all__ = [
     "MemoryAmbiguousForgetError",
@@ -33,6 +38,7 @@ __all__ = [
     "MemoryCreateRequest",
     "MemoryDisabledError",
     "MemoryError",
+    "MemoryExtractor",
     "MemoryIntentKind",
     "MemoryIntentResult",
     "MemoryLimitExceededError",
@@ -40,11 +46,14 @@ __all__ = [
     "MemoryNotFoundError",
     "MemoryRepository",
     "MemoryResponse",
+    "MemoryRetriever",
+    "MemorySanitizer",
     "MemorySensitiveContentError",
+    "MemoryService",
     "MemorySettingsResponse",
     "MemorySettingsUpdateRequest",
     "MemoryValidationError",
     "RetrievedMemoryView",
-    "default_settings_values",
-    "should_require_confirmation",
+    "build_memory_context_block",
+    "detect_memory_intent",
 ]

@@ -47,6 +47,8 @@ async def test_tool_list_authenticated_and_role_filtered(chat_client: AsyncClien
         "conversation_summary",
         "current_datetime",
         "knowledge_search",
+        "memory_list",
+        "memory_search",
     }
 
 

@@ -326,6 +326,9 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 _CLEANUP_STATEMENTS = (
+    "DELETE FROM memory_audit_events",
+    "DELETE FROM user_memories",
+    "DELETE FROM user_memory_settings",
     "DELETE FROM tool_executions",
     "DELETE FROM message_citations",
     "DELETE FROM messages",
@@ -470,16 +473,33 @@ def _wire_rag_services(
     )
 
     from app.agents.orchestrator import AgentOrchestrator
+    from app.memory.extractor import MemoryExtractor
+    from app.memory.repository import MemoryRepository
+    from app.memory.retrieval import MemoryRetriever
+    from app.memory.service import MemoryService
     from app.services.tools import ToolService
     from app.tools.builtins import create_builtin_registry
     from app.tools.executor import ToolExecutor
 
+    memory_repository = MemoryRepository(settings)
+    memory_service = MemoryService(
+        settings=settings,
+        repository=memory_repository,
+        embedding_provider=embedding_provider,
+    )
+    memory_retriever = MemoryRetriever(
+        settings=settings,
+        repository=memory_repository,
+        embedding_provider=embedding_provider,
+    )
+    memory_extractor = MemoryExtractor(settings=settings, llm_service=llm_service)
     tool_registry = create_builtin_registry()
     tool_executor = ToolExecutor(
         registry=tool_registry,
         settings=settings,
         retrieval_service=retrieval_service,
         llm_service=llm_service,
+        memory_service=memory_service,
     )
     tool_service = ToolService(registry=tool_registry)
     agent_orchestrator = AgentOrchestrator(
@@ -491,6 +511,9 @@ def _wire_rag_services(
     # Keep tools off by default for existing chat compatibility tests.
     # Tool-focused suites enable AGENT_TOOLS_ENABLED and rebind chat_service.
     chat_service.agent_orchestrator = None
+    chat_service.memory_service = memory_service
+    chat_service.memory_retriever = memory_retriever
+    chat_service.memory_extractor = memory_extractor
 
     application.state.health_service = StubHealthService(settings)
     application.state.auth_service = AuthService.from_settings(settings)
@@ -518,6 +541,9 @@ def _wire_rag_services(
     application.state.tool_registry = tool_registry
     application.state.tool_executor = tool_executor
     application.state.tool_service = tool_service
+    application.state.memory_service = memory_service
+    application.state.memory_retriever = memory_retriever
+    application.state.memory_extractor = memory_extractor
     application.state.agent_orchestrator = agent_orchestrator
     application.state.chat_service = chat_service
 

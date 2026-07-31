@@ -185,6 +185,15 @@ class StreamEventType(str, Enum):
     assistant_completed = "assistant_completed"
     agent_completed = "agent_completed"
     agent_failed = "agent_failed"
+    # Phase 7 long-term memory lifecycle (backward-compatible additions)
+    memory_retrieval_started = "memory_retrieval_started"
+    memory_retrieval_completed = "memory_retrieval_completed"
+    memory_candidate_proposed = "memory_candidate_proposed"
+    memory_saved = "memory_saved"
+    memory_updated = "memory_updated"
+    memory_archived = "memory_archived"
+    memory_deleted = "memory_deleted"
+    memory_action_failed = "memory_action_failed"
 
 
 class StreamEvent(BaseModel):

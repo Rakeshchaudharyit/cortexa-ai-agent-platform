@@ -92,11 +92,13 @@ class ToolExecutor:
         settings: Settings,
         retrieval_service: Any | None = None,
         llm_service: Any | None = None,
+        memory_service: Any | None = None,
     ) -> None:
         self.registry = registry
         self.settings = settings
         self.retrieval_service = retrieval_service
         self.llm_service = llm_service
+        self.memory_service = memory_service
 
     async def execute(
         self,
@@ -258,6 +260,7 @@ class ToolExecutor:
             llm_service=self.llm_service,
             settings=self.settings,
             active_tool_stack=stack,
+            extras={"memory_service": self.memory_service} if self.memory_service else {},
         )
 
         timeout = min(tool.timeout_seconds, self.settings.agent_tool_timeout_seconds)

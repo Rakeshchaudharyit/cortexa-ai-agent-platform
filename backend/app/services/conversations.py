@@ -50,6 +50,7 @@ def conversation_to_summary(conversation: Conversation) -> ConversationSummaryRe
         preview = conversation.summary.strip()
         if len(preview) > 160:
             preview = preview[:160].rstrip() + "…"
+    memory_enabled = conversation.memory_enabled_override
     return ConversationSummaryResponse(
         id=conversation.id,
         title=conversation.title,
@@ -61,6 +62,7 @@ def conversation_to_summary(conversation: Conversation) -> ConversationSummaryRe
         archived_at=conversation.archived_at,
         title_is_auto=conversation.title_is_auto,
         summary_preview=preview,
+        memory_enabled=memory_enabled,
     )
 
 
@@ -334,7 +336,24 @@ class ConversationService:
                 for item in messages
             ],
             has_more_messages=total_messages > len(messages),
+            memory_enabled=conversation.memory_enabled_override,
+            memory_context_used=int(conversation.memory_context_used or 0),
         )
+
+    async def set_memory_enabled(
+        self,
+        session: AsyncSession,
+        user: User,
+        conversation_id: uuid.UUID,
+        *,
+        memory_enabled: bool,
+        reason: str | None = None,
+    ) -> Conversation:
+        conversation = await self.get_owned_conversation(session, user, conversation_id)
+        conversation.memory_enabled_override = memory_enabled
+        conversation.memory_disabled_reason = None if memory_enabled else (reason or "user_toggle")
+        await session.flush()
+        return conversation
 
     async def rename_conversation(
         self,

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth_exceptions import InvalidAccessTokenError
 from app.core.config import Settings
 from app.db.session import get_db_session
+from app.memory.service import MemoryService
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.auth import AuthService
@@ -115,6 +116,13 @@ def get_tool_service(request: Request) -> ToolService:
     return service
 
 
+def get_memory_service(request: Request) -> MemoryService:
+    service = getattr(request.app.state, "memory_service", None)
+    if not isinstance(service, MemoryService):
+        raise RuntimeError("Memory service is not configured")
+    return service
+
+
 async def get_current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
@@ -175,3 +183,4 @@ ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 ToolServiceDep = Annotated[ToolService, Depends(get_tool_service)]
+MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]

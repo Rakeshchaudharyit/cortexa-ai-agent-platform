@@ -40,6 +40,7 @@ class BuiltContext:
     history_message_count: int
     history_character_count: int
     rag_character_count: int
+    memory_character_count: int
     included_summary: bool
     trimmed: bool
 
@@ -58,6 +59,7 @@ class ConversationContextBuilder:
         summary: str | None,
         retrieved: list[RetrievedChunk],
         general_mode: bool = False,
+        memory_context: str | None = None,
     ) -> BuiltContext:
         max_history_messages = self.settings.conversation_max_history_messages
         max_history_chars = self.settings.conversation_max_history_characters
@@ -73,10 +75,8 @@ class ConversationContextBuilder:
             and message.content.strip()
         ]
 
-        # Exclude the current user message if it was already persisted and passed in history.
-        # Callers should pass prior history only; we still guard by content identity at the end.
-
         rag_context = self._build_rag_context(retrieved, max_chars=max_rag_chars)
+        memory_block = (memory_context or "").strip()
         current = current_user_content.strip()
 
         selected: list[Message] = []
@@ -100,19 +100,27 @@ class ConversationContextBuilder:
             summary_text = summary_text[: self.settings.conversation_summary_max_characters]
 
         system = _GENERAL_SYSTEM_PROMPT if general_mode else _RAG_SYSTEM_PROMPT
+        if memory_block:
+            system = f"{system}\n\n{memory_block}"
+
         chat_messages: list[ChatMessage] = []
 
-        # Budget: current + RAG + summary + history, trimming history first then summary.
-        reserved = len(current) + len(rag_context) + (len(summary_text) + 64 if summary_text else 0)
+        reserved = (
+            len(current)
+            + len(rag_context)
+            + len(memory_block)
+            + (len(summary_text) + 64 if summary_text else 0)
+        )
         remaining = max_context_chars - reserved
         if remaining < 0:
-            # Prefer current + RAG; drop summary then history.
             summary_text = ""
             included_summary = False
-            remaining = max_context_chars - len(current) - len(rag_context)
+            remaining = max_context_chars - len(current) - len(rag_context) - len(memory_block)
             if remaining < 0 and rag_context:
-                rag_context = rag_context[: max(0, max_context_chars - len(current) - 32)]
-                remaining = max_context_chars - len(current) - len(rag_context)
+                rag_context = rag_context[
+                    : max(0, max_context_chars - len(current) - len(memory_block) - 32)
+                ]
+                remaining = max_context_chars - len(current) - len(rag_context) - len(memory_block)
 
         packed_history: list[Message] = []
         used = 0
@@ -162,6 +170,7 @@ class ConversationContextBuilder:
             history_message_count=len(packed_history),
             history_character_count=sum(len(m.content) for m in packed_history),
             rag_character_count=len(rag_context),
+            memory_character_count=len(memory_block),
             included_summary=included_summary,
             trimmed=trimmed,
         )

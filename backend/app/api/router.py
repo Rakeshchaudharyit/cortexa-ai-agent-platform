@@ -11,6 +11,7 @@ from app.api.routes import (
     embeddings,
     health,
     llm,
+    memories,
     rag,
     system,
     tools,
@@ -30,6 +31,7 @@ def build_api_router(settings: Settings) -> APIRouter:
     api.include_router(conversations.router)
     api.include_router(conversations.usage_router)
     api.include_router(tools.router)
+    api.include_router(memories.router)
     return api
 
 

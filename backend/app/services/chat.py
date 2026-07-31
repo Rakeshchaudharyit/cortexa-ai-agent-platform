@@ -40,6 +40,10 @@ from app.llm.schemas import (
 from app.llm.schemas import (
     MessageRole as LLMRole,
 )
+from app.memory.chat_integration import maybe_extract_after_turn, prepare_memory_for_turn
+from app.memory.extractor import MemoryExtractor
+from app.memory.retrieval import MemoryRetriever
+from app.memory.service import MemoryService
 from app.models.conversation import DEFAULT_CONVERSATION_TITLE, Conversation, Message
 from app.models.document import Document
 from app.models.enums import ConversationStatus, MessageRole, MessageStatus
@@ -78,6 +82,9 @@ class ChatService:
         title_generator: TitleGenerator | None = None,
         summarizer: Summarizer | None = None,
         agent_orchestrator: AgentOrchestrator | None = None,
+        memory_service: MemoryService | None = None,
+        memory_retriever: MemoryRetriever | None = None,
+        memory_extractor: MemoryExtractor | None = None,
     ) -> None:
         self.settings = settings
         self.conversation_service = conversation_service
@@ -88,6 +95,9 @@ class ChatService:
         self.title_generator = title_generator
         self.summarizer = summarizer
         self.agent_orchestrator = agent_orchestrator
+        self.memory_service = memory_service
+        self.memory_retriever = memory_retriever
+        self.memory_extractor = memory_extractor
 
     @property
     def tools_enabled(self) -> bool:
@@ -612,6 +622,35 @@ class ChatService:
             request_id,
         )
 
+        memory_turn = await prepare_memory_for_turn(
+            session=session,
+            user=user,
+            conversation=conversation,
+            user_content=user_message.content,
+            user_message_id=user_message.id,
+            memory_service=self.memory_service,
+            memory_retriever=self.memory_retriever,
+        )
+        if memory_turn.short_circuit_reply:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            finalized = await self.message_service.finalize_assistant(
+                session,
+                assistant,
+                content=memory_turn.short_circuit_reply,
+                grounded=None,
+                model=self.llm_service.provider.default_model,
+                provider=self.llm_service.provider.name,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                latency_ms=latency_ms,
+                finish_reason="memory_action",
+                citations=[],
+            )
+            await self._maybe_update_title(session, conversation, user_message, finalized)
+            await self._maybe_update_summary(session, conversation, user)
+            return finalized
+
         if retrieval_attempted and not retrieved:
             logger.info(
                 "no_context_fallback user_id=%s conversation_id=%s request_id=%s",
@@ -650,6 +689,7 @@ class ChatService:
             summary=conversation.summary,
             retrieved=retrieved,
             general_mode=general_mode,
+            memory_context=memory_turn.memory_context or None,
         )
         if built.trimmed:
             logger.info(
@@ -704,6 +744,7 @@ class ChatService:
             meta = {
                 "tool_execution_ids": agent_result.tool_execution_ids,
                 "agent_iterations": agent_result.iterations,
+                "memory_count": len(memory_turn.retrieved),
             }
             assistant.message_metadata = {
                 **(assistant.message_metadata or {}),
@@ -732,6 +773,16 @@ class ChatService:
                 latency_ms,
                 len(agent_result.tool_execution_ids),
                 request_id,
+            )
+            await maybe_extract_after_turn(
+                session=session,
+                user=user,
+                conversation=conversation,
+                user_content=user_message.content,
+                assistant_content=finalized.content,
+                user_message_id=user_message.id,
+                memory_service=self.memory_service,
+                memory_extractor=self.memory_extractor,
             )
             await self._maybe_update_title(session, conversation, user_message, finalized)
             await self._maybe_update_summary(session, conversation, user)
@@ -780,6 +831,16 @@ class ChatService:
             assistant.id,
             latency_ms,
             request_id,
+        )
+        await maybe_extract_after_turn(
+            session=session,
+            user=user,
+            conversation=conversation,
+            user_content=user_message.content,
+            assistant_content=finalized.content,
+            user_message_id=user_message.id,
+            memory_service=self.memory_service,
+            memory_extractor=self.memory_extractor,
         )
         await self._maybe_update_title(session, conversation, user_message, finalized)
         await self._maybe_update_summary(session, conversation, user)
@@ -836,6 +897,56 @@ class ChatService:
             len(retrieved),
             request_id,
         )
+
+        memory_turn = await prepare_memory_for_turn(
+            session=session,
+            user=user,
+            conversation=conversation,
+            user_content=user_message.content,
+            user_message_id=user_message.id,
+            memory_service=self.memory_service,
+            memory_retriever=self.memory_retriever,
+        )
+        for event in memory_turn.events:
+            yield event
+
+        if memory_turn.short_circuit_reply:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            reply = memory_turn.short_circuit_reply
+            finalized = await self.message_service.finalize_assistant(
+                session,
+                assistant,
+                content=reply,
+                grounded=None,
+                model=self.llm_service.provider.default_model,
+                provider=self.llm_service.provider.name,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                latency_ms=latency_ms,
+                finish_reason="memory_action",
+                citations=[],
+            )
+            await self._maybe_update_title(session, conversation, user_message, finalized)
+            await self._maybe_update_summary(session, conversation, user)
+            await session.commit()
+            yield StreamEvent(event=StreamEventType.delta, data={"content": reply})
+            yield StreamEvent(
+                event=StreamEventType.metadata,
+                data={
+                    "model": finalized.model,
+                    "provider": finalized.provider,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                    "latency_ms": latency_ms,
+                },
+            )
+            yield StreamEvent(
+                event=StreamEventType.complete,
+                data={"message": message_to_response(finalized).model_dump(mode="json")},
+            )
+            return
 
         if retrieval_attempted and not retrieved:
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -894,6 +1005,7 @@ class ChatService:
             summary=conversation.summary,
             retrieved=retrieved,
             general_mode=general_mode,
+            memory_context=memory_turn.memory_context or None,
         )
         citations = self._build_citations(retrieved) if not general_mode else []
         for citation in citations:
@@ -1021,6 +1133,17 @@ class ChatService:
                 finish_reason=str(agent_meta.get("finish_reason") or "stop"),
                 citations=citations,
             )
+            for mem_event in await maybe_extract_after_turn(
+                session=session,
+                user=user,
+                conversation=conversation,
+                user_content=user_message.content,
+                assistant_content=finalized.content,
+                user_message_id=user_message.id,
+                memory_service=self.memory_service,
+                memory_extractor=self.memory_extractor,
+            ):
+                yield mem_event
             await self._maybe_update_title(session, conversation, user_message, finalized)
             await self._maybe_update_summary(session, conversation, user)
             await session.commit()
@@ -1137,6 +1260,17 @@ class ChatService:
             finish_reason=final_meta.get("finish_reason"),
             citations=citations,
         )
+        for mem_event in await maybe_extract_after_turn(
+            session=session,
+            user=user,
+            conversation=conversation,
+            user_content=user_message.content,
+            assistant_content=finalized.content,
+            user_message_id=user_message.id,
+            memory_service=self.memory_service,
+            memory_extractor=self.memory_extractor,
+        ):
+            yield mem_event
         await self._maybe_update_title(session, conversation, user_message, finalized)
         await self._maybe_update_summary(session, conversation, user)
         await session.commit()

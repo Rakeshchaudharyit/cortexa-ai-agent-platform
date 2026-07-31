@@ -67,6 +67,20 @@ class ConversationSummaryResponse(BaseModel):
     archived_at: datetime | None = None
     title_is_auto: bool
     summary_preview: str | None = None
+    memory_enabled: bool | None = None
+
+
+class ConversationMemoryUpdateRequest(BaseModel):
+    memory_enabled: bool
+    reason: str | None = Field(default=None, max_length=255)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class MessageCitationResponse(BaseModel):
@@ -126,6 +140,8 @@ class ConversationDetailResponse(BaseModel):
     default_document_scope: list[uuid.UUID] | None = None
     messages: list[MessageResponse]
     has_more_messages: bool = False
+    memory_enabled: bool | None = None
+    memory_context_used: int = 0
 
 
 class ConversationListResponse(BaseModel):

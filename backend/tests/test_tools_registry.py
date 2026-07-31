@@ -41,6 +41,8 @@ def test_lists_tools_deterministically() -> None:
         "conversation_summary",
         "current_datetime",
         "knowledge_search",
+        "memory_list",
+        "memory_search",
     ]
 
 
@@ -52,6 +54,8 @@ def test_filters_by_role() -> None:
         "conversation_summary",
         "current_datetime",
         "knowledge_search",
+        "memory_list",
+        "memory_search",
     }
 
 

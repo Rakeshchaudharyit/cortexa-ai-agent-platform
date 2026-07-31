@@ -17,6 +17,10 @@ from app.documents.chunking import ChunkingConfig, ChunkingService
 from app.documents.extraction import ExtractionService
 from app.embeddings.factory import create_embedding_provider
 from app.llm.factory import create_llm_provider
+from app.memory.extractor import MemoryExtractor
+from app.memory.repository import MemoryRepository
+from app.memory.retrieval import MemoryRetriever
+from app.memory.service import MemoryService
 from app.notifications.password_reset import create_password_reset_delivery
 from app.providers.http import close_http_client, init_http_client
 from app.providers.redis import close_redis, init_redis
@@ -102,11 +106,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         conversation_service=conversation_service,
     )
     tool_registry = create_builtin_registry()
+    memory_repository = MemoryRepository(settings)
+    memory_service = MemoryService(
+        settings=settings,
+        repository=memory_repository,
+        embedding_provider=embedding_provider,
+    )
+    memory_retriever = MemoryRetriever(
+        settings=settings,
+        repository=memory_repository,
+        embedding_provider=embedding_provider,
+    )
+    memory_extractor = MemoryExtractor(
+        settings=settings,
+        llm_service=llm_service,
+    )
     tool_executor = ToolExecutor(
         registry=tool_registry,
         settings=settings,
         retrieval_service=retrieval_service,
         llm_service=llm_service,
+        memory_service=memory_service,
     )
     tool_service = ToolService(registry=tool_registry)
     agent_orchestrator = AgentOrchestrator(
@@ -123,6 +143,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         llm_service=llm_service,
         context_builder=ConversationContextBuilder(settings),
         agent_orchestrator=agent_orchestrator,
+        memory_service=memory_service,
+        memory_retriever=memory_retriever,
+        memory_extractor=memory_extractor,
     )
 
     app.state.settings = settings
@@ -147,6 +170,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.tool_registry = tool_registry
     app.state.tool_executor = tool_executor
     app.state.tool_service = tool_service
+    app.state.memory_service = memory_service
+    app.state.memory_retriever = memory_retriever
+    app.state.memory_extractor = memory_extractor
     app.state.agent_orchestrator = agent_orchestrator
     app.state.chat_service = chat_service
     app.state.health_service = HealthService(

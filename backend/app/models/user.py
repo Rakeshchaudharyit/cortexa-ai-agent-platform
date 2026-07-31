@@ -16,6 +16,7 @@ from app.models.enums import UserRole, UserStatus
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
     from app.models.document import Document
+    from app.models.memory import UserMemory, UserMemorySettings
     from app.models.password_reset import PasswordResetToken
     from app.models.refresh_session import RefreshSession
 
@@ -94,6 +95,17 @@ class User(Base):
         "Conversation",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    memories: Mapped[list[UserMemory]] = relationship(
+        "UserMemory",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    memory_settings: Mapped[UserMemorySettings | None] = relationship(
+        "UserMemorySettings",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     def __repr__(self) -> str:

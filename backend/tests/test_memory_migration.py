@@ -1,4 +1,4 @@
-"""Alembic migration coverage for Phase 6 tool executions."""
+"""Alembic migration coverage for Phase 7 long-term memory."""
 
 from __future__ import annotations
 
@@ -8,15 +8,14 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 
-def test_agent_tools_migration_revision_chain() -> None:
+def test_long_term_memory_migration_revision_chain() -> None:
     root = Path(__file__).resolve().parents[1]
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(cfg)
     revisions = {rev.revision: rev for rev in script.walk_revisions()}
-    assert "0007_agent_tools" in revisions
-    rev = revisions["0007_agent_tools"]
-    assert rev.down_revision == "0006_database_identity"
+    assert "0008_long_term_memory" in revisions
+    rev = revisions["0008_long_term_memory"]
+    assert rev.down_revision == "0007_agent_tools"
     heads = set(script.get_heads())
     assert heads == {"0008_long_term_memory"}
-    assert revisions["0008_long_term_memory"].down_revision == "0007_agent_tools"

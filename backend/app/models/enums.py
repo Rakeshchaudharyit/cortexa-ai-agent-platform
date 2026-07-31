@@ -62,3 +62,63 @@ class ToolExecutionStatus(StrEnum):
     denied = "denied"
     timed_out = "timed_out"
     cancelled = "cancelled"
+
+
+class MemoryCategory(StrEnum):
+    """Durable long-term memory categories (non-sensitive identity)."""
+
+    preference = "preference"
+    personal_context = "personal_context"
+    project = "project"
+    instruction = "instruction"
+    workflow = "workflow"
+    technical_context = "technical_context"
+    decision = "decision"
+    goal = "goal"
+    relationship_context = "relationship_context"
+    other = "other"
+
+
+class MemorySource(StrEnum):
+    """How a memory entered the system."""
+
+    explicit_user_request = "explicit_user_request"
+    assistant_suggestion = "assistant_suggestion"
+    automatic_extraction = "automatic_extraction"
+    imported = "imported"
+    system_generated = "system_generated"
+
+
+class MemoryStatus(StrEnum):
+    """Long-term memory lifecycle."""
+
+    proposed = "proposed"
+    active = "active"
+    archived = "archived"
+    rejected = "rejected"
+    deleted = "deleted"
+
+
+class MemoryConfidence(StrEnum):
+    """Coarse confidence for extracted or proposed memories."""
+
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class MemoryAuditEventType(StrEnum):
+    """Audited memory lifecycle events."""
+
+    proposed = "proposed"
+    created = "created"
+    confirmed = "confirmed"
+    updated = "updated"
+    retrieved = "retrieved"
+    injected = "injected"
+    archived = "archived"
+    restored = "restored"
+    rejected = "rejected"
+    deleted = "deleted"
+    expired = "expired"
+    conflict_superseded = "conflict_superseded"

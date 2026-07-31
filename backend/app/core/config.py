@@ -440,6 +440,69 @@ class Settings(BaseSettings):
         alias="AGENT_MAX_RESULT_BYTES",
     )
 
+    # Long-term memory (Phase 7)
+    memory_enabled: bool = Field(default=True, alias="MEMORY_ENABLED")
+    memory_automatic_extraction_default: bool = Field(
+        default=False,
+        alias="MEMORY_AUTOMATIC_EXTRACTION_DEFAULT",
+    )
+    memory_suggestions_default: bool = Field(
+        default=True,
+        alias="MEMORY_SUGGESTIONS_DEFAULT",
+    )
+    memory_require_confirmation_default: bool = Field(
+        default=True,
+        alias="MEMORY_REQUIRE_CONFIRMATION_DEFAULT",
+    )
+    memory_max_active_per_user: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        alias="MEMORY_MAX_ACTIVE_PER_USER",
+    )
+    memory_max_retrieval_results: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        alias="MEMORY_MAX_RETRIEVAL_RESULTS",
+    )
+    memory_max_content_characters: int = Field(
+        default=2_000,
+        ge=40,
+        le=10_000,
+        alias="MEMORY_MAX_CONTENT_CHARACTERS",
+    )
+    memory_title_max_characters: int = Field(
+        default=200,
+        ge=8,
+        le=200,
+        alias="MEMORY_TITLE_MAX_CHARACTERS",
+    )
+    memory_context_max_characters: int = Field(
+        default=3_000,
+        ge=200,
+        le=20_000,
+        alias="MEMORY_CONTEXT_MAX_CHARACTERS",
+    )
+    memory_default_expiration_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=3650,
+        alias="MEMORY_DEFAULT_EXPIRATION_DAYS",
+    )
+    memory_min_relevance_score: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        alias="MEMORY_MIN_RELEVANCE_SCORE",
+    )
+    memory_duplicate_similarity_threshold: float = Field(
+        default=0.92,
+        ge=0.5,
+        le=1.0,
+        alias="MEMORY_DUPLICATE_SIMILARITY_THRESHOLD",
+    )
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:
@@ -605,6 +668,19 @@ class Settings(BaseSettings):
         text = str(value).strip()
         return text or None
 
+    @field_validator("memory_default_expiration_days", mode="before")
+    @classmethod
+    def normalize_memory_expiration_days(cls, value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            raise ValueError("MEMORY_DEFAULT_EXPIRATION_DAYS must be an integer or empty")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            return int(value.strip())
+        raise ValueError("MEMORY_DEFAULT_EXPIRATION_DAYS must be an integer or empty")
+
     @model_validator(mode="after")
     def build_connection_urls(self) -> Settings:
         if not self.database_url:
@@ -727,6 +803,18 @@ class Settings(BaseSettings):
             "agent_max_tool_iterations": self.agent_max_tool_iterations,
             "agent_tool_timeout_seconds": self.agent_tool_timeout_seconds,
             "agent_max_result_bytes": self.agent_max_result_bytes,
+            "memory_enabled": self.memory_enabled,
+            "memory_automatic_extraction_default": self.memory_automatic_extraction_default,
+            "memory_suggestions_default": self.memory_suggestions_default,
+            "memory_require_confirmation_default": self.memory_require_confirmation_default,
+            "memory_max_active_per_user": self.memory_max_active_per_user,
+            "memory_max_retrieval_results": self.memory_max_retrieval_results,
+            "memory_max_content_characters": self.memory_max_content_characters,
+            "memory_title_max_characters": self.memory_title_max_characters,
+            "memory_context_max_characters": self.memory_context_max_characters,
+            "memory_default_expiration_days": self.memory_default_expiration_days,
+            "memory_min_relevance_score": self.memory_min_relevance_score,
+            "memory_duplicate_similarity_threshold": self.memory_duplicate_similarity_threshold,
         }
 
 

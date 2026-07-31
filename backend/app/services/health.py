@@ -78,7 +78,7 @@ class HealthService:
                 ollama=True,
                 auth=True,
                 rag=True,
-                memory=True,
+                memory=self.settings.memory_enabled,
                 tools=self.settings.agent_tools_enabled,
                 voice=False,
                 password_reset_dev_notice=(

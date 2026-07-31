@@ -112,6 +112,21 @@ class Conversation(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Phase 7 — per-conversation memory controls (null = inherit account setting)
+    memory_enabled_override: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+    )
+    memory_context_used: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    memory_disabled_reason: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
 
     user: Mapped[User] = relationship("User", back_populates="conversations")
     messages: Mapped[list[Message]] = relationship(

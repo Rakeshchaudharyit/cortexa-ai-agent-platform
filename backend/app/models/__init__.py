@@ -11,12 +11,18 @@ from app.models.document import Document, DocumentChunk
 from app.models.enums import (
     ConversationStatus,
     DocumentStatus,
+    MemoryAuditEventType,
+    MemoryCategory,
+    MemoryConfidence,
+    MemorySource,
+    MemoryStatus,
     MessageRole,
     MessageStatus,
     ToolExecutionStatus,
     UserRole,
     UserStatus,
 )
+from app.models.memory import MemoryAuditEvent, UserMemory, UserMemorySettings
 from app.models.password_reset import PasswordResetToken
 from app.models.refresh_session import RefreshSession
 from app.models.tool_execution import ToolExecution
@@ -30,6 +36,12 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentStatus",
+    "MemoryAuditEvent",
+    "MemoryAuditEventType",
+    "MemoryCategory",
+    "MemoryConfidence",
+    "MemorySource",
+    "MemoryStatus",
     "Message",
     "MessageCitation",
     "MessageRole",
@@ -39,6 +51,8 @@ __all__ = [
     "ToolExecution",
     "ToolExecutionStatus",
     "User",
+    "UserMemory",
+    "UserMemorySettings",
     "UserRole",
     "UserStatus",
 ]

@@ -4,6 +4,8 @@ Phase 5 adds **persistent, user-owned conversations** with multi-turn RAG chat, 
 
 **Phase 6** extends the same chat flow with optional agent tools (see [AGENT_TOOLS.md](AGENT_TOOLS.md)). When `AGENT_TOOLS_ENABLED=true`, the orchestrator may emit additional SSE tool events while preserving `start` / `delta` / `citation` / `complete` compatibility.
 
+**Phase 7** may also emit memory lifecycle SSE events (`memory_retrieval_*`, `memory_saved`, `memory_candidate_proposed`, …) and inject a bounded memory context block into the system prompt. See [LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md).
+
 See also: [RAG.md](RAG.md), [AUTHENTICATION.md](AUTHENTICATION.md), [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -281,3 +283,4 @@ See `.env.example` for `CONVERSATION_*`, `CHAT_*`, and related RAG limits.
 - Edit does not chain into automatic regeneration.
 - No org/tenant shared conversations.
 - Agent tools are covered in Phase 6 ([AGENT_TOOLS.md](AGENT_TOOLS.md)).
+- Long-term memory is covered in Phase 7 ([LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md)).

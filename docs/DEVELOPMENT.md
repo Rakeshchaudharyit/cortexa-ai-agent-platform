@@ -144,7 +144,8 @@ See `.env.example`. Key variables:
   `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_CONNECT_TIMEOUT_SECONDS`,
   `LLM_MAX_INPUT_CHARACTERS`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_DEFAULT_TEMPERATURE`
 - Phase 5 conversations: `CONVERSATION_*`, `CHAT_GENERAL_MODE_ENABLED`, `CHAT_DEFAULT_*`, `MESSAGE_MAX_RESPONSE_TOKENS` (see `.env.example`)
-- Phase 6 agent tools: `AGENT_TOOLS_ENABLED`, `AGENT_MAX_TOOL_ITERATIONS`, `AGENT_TOOL_TIMEOUT_SECONDS`, `AGENT_MAX_RESULT_BYTES` (see `.env.example` and `docs/AGENT_TOOLS.md`)
+- Phase 6 agent tools: `AGENT_TOOLS_*` (see `.env.example` and `docs/AGENT_TOOLS.md`)
+- Phase 7 memory: `MEMORY_*` (see `.env.example` and `docs/LONG_TERM_MEMORY.md`)
 
 Security placeholders may exist but are not implemented yet.
 
@@ -303,16 +304,16 @@ Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
 
 ---
 
-## Current Limitations (Phase 6)
+## Current Limitations (Phase 7)
 
-- No cross-conversation or profile memory (only per-conversation rolling summary)
+- Long-term memory is user-controlled; automatic extraction stays off by default
 - Native Ollama tool calling depends on the installed model — do not assume it works without verification
 - No external SaaS tools, web browsing, shell, MCP, or voice
 - Document ingest remains synchronous (request-scoped); no background workers
 - PDF text extraction only (no OCR); encrypted PDFs rejected
 - Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)
 - Deleted conversations are not restorable; token fields may be null from the provider
-- Home page is the Phase 6 platform overview (capabilities, quick actions, system status) plus documents; `/chat` is the conversation product surface; `/tools` shows owned tool execution history
+- Home page is the Phase 7 platform overview (capabilities, quick actions, system status) plus documents; `/chat` is the conversation product surface; `/tools` shows owned tool execution history; `/memories` manages long-term memory
 
 ---
 

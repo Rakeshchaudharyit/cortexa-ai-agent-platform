@@ -1,17 +1,19 @@
-# Cortexa Frontend — Phase 6
+# Cortexa Frontend — Phase 7
 
-See the repository root [README.md](../README.md), [docs/AGENT_TOOLS.md](../docs/AGENT_TOOLS.md),
-[docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md), and [docs/RAG.md](../docs/RAG.md) for setup.
+See the repository root [README.md](../README.md), [docs/LONG_TERM_MEMORY.md](../docs/LONG_TERM_MEMORY.md),
+[docs/AGENT_TOOLS.md](../docs/AGENT_TOOLS.md), [docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md),
+and [docs/RAG.md](../docs/RAG.md) for setup.
 
 ## Surfaces
 
-- Platform overview (Phase 6 milestone, capability cards, quick actions)
-- System status (API, database, Redis, LLM, RAG/embeddings, agent tools flag)
+- Platform overview (Phase 7 milestone, capability cards, quick actions)
+- System status (API, database, Redis, LLM, RAG/embeddings, agent tools, memory flag)
 - Auth (`/login`, `/register`, header session controls)
 - Authenticated **Documents & grounded Q&A** panel on the home page
 - **Chat** (`/chat`, `/chat/[conversationId]`) — General Agent and Document Knowledge modes,
-  streaming composer, citations, live tool activity
+  streaming composer, citations, live tool activity, memory indicators
 - **Tool history** (`/tools`) — owned agent tool execution audit trail
+- **Memories** (`/memories`) — review, confirm, archive, delete, and configure long-term memory
 
 ## API fetching decision
 

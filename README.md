@@ -4,15 +4,15 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 6 — Agent tools and function calling
+> **Current status:** Phase 7 — Long-term memory and personalization
 >
 > FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication,
-> document RAG, multi-turn chat, and built-in agent tools (calculator, datetime,
-> knowledge search, conversation summary) are runnable.
+> document RAG, multi-turn chat, built-in agent tools, and user-controlled long-term memory
+> are runnable.
 >
-> Cross-conversation long-term memory, external SaaS tools, voice, and organization/tenant
-> management are **not** implemented.
+> External SaaS tools, voice, and organization/tenant management are **not** implemented.
 
+See [docs/LONG_TERM_MEMORY.md](docs/LONG_TERM_MEMORY.md) for the Phase 7 memory architecture.
 See [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) for the Phase 6 tool architecture.
 
 ---
@@ -29,15 +29,21 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 4 added private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 added persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI. Phase 6 adds secure built-in agent tools with native Ollama tool calling, execution history, and frontend tool visibility.
+Phase 4 added private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 added persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI. Phase 6 added secure built-in agent tools with native Ollama tool calling, execution history, and frontend tool visibility. Phase 7 adds user-controlled long-term memory with retrieval, confirmation policies, and a `/memories` management UI.
 
 ---
 
-## What Phase 6 Implements
+## What Phase 7 Implements
 
 | Capability | Status |
 | --- | --- |
-| Phase 1–5 foundation + auth + RAG + conversations | Preserved |
+| Phase 1–6 foundation + auth + RAG + conversations + tools | Preserved |
+| User-owned long-term memories | Available |
+| Memory settings (extraction off by default) | Available |
+| Explicit remember / forget | Available |
+| Bounded memory retrieval into chat context | Available |
+| `/memories` management UI | Available |
+| Memory streaming events + audit trail | Available |
 | Built-in tools (calculator, datetime, knowledge search, summary) | Implemented |
 | Tool registry, executor, orchestrator, SSE tool events | Implemented |
 | Persistent `tool_executions` audit history | Implemented |

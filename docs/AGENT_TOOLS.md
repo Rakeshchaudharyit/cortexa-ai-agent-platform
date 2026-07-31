@@ -195,15 +195,17 @@ AGENT_TOOL_TIMEOUT_SECONDS=30
 AGENT_MAX_RESULT_BYTES=32768
 ```
 
-## Excluded Phase 7 work
+## Excluded from Phase 6 (historical)
 
-Not in Phase 6:
+The following remained out of Phase 6. Phase 7 later added long-term memory (see [LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md)); the rest remain excluded:
 
-- Gmail / Google Calendar / Slack integrations
+- Gmail / Google Calendar / Slack / Teams
 - External web browsing
 - Arbitrary shell / Python / SQL execution
 - Remote MCP servers
 - Third-party OAuth
 - STT / TTS
-- Long-term cross-conversation memory
+- Organization-wide shared memory
 - Autonomous background / scheduled agents
+
+Built-in memory tools (`memory_list`, `memory_search`) added in Phase 7 are read-only and ownership-scoped.

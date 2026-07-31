@@ -305,6 +305,8 @@ export type ConversationDetail = {
   default_document_scope: string[] | null;
   messages: ConversationMessage[];
   has_more_messages: boolean;
+  memory_enabled?: boolean | null;
+  memory_context_used?: number;
 };
 
 export type ConversationListResponse = {
@@ -408,4 +410,144 @@ export type SSEEvent =
   | { event: "assistant_token"; data: SSEDeltaData }
   | { event: "assistant_completed"; data: { content: string } }
   | { event: "agent_completed"; data: Record<string, unknown> }
-  | { event: "agent_failed"; data: SSEErrorData };
+  | { event: "agent_failed"; data: SSEErrorData }
+  | { event: "memory_retrieval_started"; data: Record<string, unknown> }
+  | {
+      event: "memory_retrieval_completed";
+      data: {
+        count: number;
+        references?: Array<{ title: string; category: string }>;
+      };
+    }
+  | {
+      event: "memory_candidate_proposed";
+      data: {
+        title: string;
+        category: string;
+        reason?: string;
+        status?: string;
+      };
+    }
+  | {
+      event: "memory_saved";
+      data: { title?: string; category?: string; status?: string };
+    }
+  | {
+      event: "memory_updated";
+      data: Record<string, unknown>;
+    }
+  | {
+      event: "memory_archived";
+      data: { count?: number; titles?: string[] };
+    }
+  | { event: "memory_deleted"; data: Record<string, unknown> }
+  | {
+      event: "memory_action_failed";
+      data: { code?: string; message?: string };
+    };
+
+export type MemoryCategory =
+  | "preference"
+  | "personal_context"
+  | "project"
+  | "instruction"
+  | "workflow"
+  | "technical_context"
+  | "decision"
+  | "goal"
+  | "relationship_context"
+  | "other";
+
+export type MemoryStatus = "proposed" | "active" | "archived" | "rejected" | "deleted";
+
+export type MemorySource =
+  | "explicit_user_request"
+  | "assistant_suggestion"
+  | "automatic_extraction"
+  | "imported"
+  | "system_generated";
+
+export type MemoryResponse = {
+  id: string;
+  category: MemoryCategory;
+  status: MemoryStatus;
+  title: string;
+  content: string;
+  source: MemorySource;
+  confidence: "high" | "medium" | "low" | null;
+  importance: number;
+  confirmation_required: boolean;
+  confirmed_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  expires_at: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  source_conversation_id: string | null;
+};
+
+export type MemoryListResponse = {
+  items: MemoryResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type MemorySettingsResponse = {
+  memory_enabled: boolean;
+  automatic_extraction_enabled: boolean;
+  suggestions_enabled: boolean;
+  require_confirmation: boolean;
+  include_memories_in_chat: boolean;
+  maximum_active_memories: number;
+  default_expiration_days: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemorySettingsUpdateRequest = Partial<{
+  memory_enabled: boolean;
+  automatic_extraction_enabled: boolean;
+  suggestions_enabled: boolean;
+  require_confirmation: boolean;
+  include_memories_in_chat: boolean;
+  maximum_active_memories: number;
+  default_expiration_days: number | null;
+}>;
+
+export type MemoryCreateRequest = {
+  title: string;
+  content: string;
+  category?: MemoryCategory;
+  importance?: number;
+  expires_at?: string | null;
+  confirmation_required?: boolean | null;
+};
+
+export type MemoryUpdateRequest = {
+  title?: string;
+  content?: string;
+  category?: MemoryCategory;
+  importance?: number;
+  expires_at?: string | null;
+};
+
+export type MemoryAuditEventResponse = {
+  id: string;
+  memory_id: string | null;
+  event_type: string;
+  conversation_id: string | null;
+  message_id: string | null;
+  safe_metadata_json: Record<string, unknown> | null;
+  created_at: string;
+  correlation_id: string | null;
+};
+
+export type MemoryAuditListResponse = {
+  items: MemoryAuditEventResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+};

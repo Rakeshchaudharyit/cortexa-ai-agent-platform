@@ -333,7 +333,7 @@ export function SystemStatusPanel() {
         <div>
           <h2 className="text-lg font-semibold text-slate-100">Coming later</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Cross-conversation memory and voice remain unimplemented.
+            Voice interaction remains unimplemented.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

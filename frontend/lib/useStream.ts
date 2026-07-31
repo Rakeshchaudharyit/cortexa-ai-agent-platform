@@ -34,6 +34,7 @@ export type StreamCallbacks = {
   onToolExecutionStarted?: (data: SSEToolExecutionStartedData) => void;
   onToolExecutionSucceeded?: (data: SSEToolExecutionSucceededData) => void;
   onToolExecutionFailed?: (data: SSEToolExecutionFailedData) => void;
+  onMemoryEvent?: (event: SSEEvent) => void;
 };
 
 type StreamState = "idle" | "streaming" | "done" | "error";
@@ -100,6 +101,16 @@ export function useStream() {
               break;
             case "tool_execution_failed":
               callbacks.onToolExecutionFailed?.(event.data);
+              break;
+            case "memory_retrieval_started":
+            case "memory_retrieval_completed":
+            case "memory_candidate_proposed":
+            case "memory_saved":
+            case "memory_updated":
+            case "memory_archived":
+            case "memory_deleted":
+            case "memory_action_failed":
+              callbacks.onMemoryEvent?.(event);
               break;
             default:
               break;

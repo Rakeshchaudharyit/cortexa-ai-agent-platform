@@ -3,7 +3,7 @@ import type { ApiResult } from "@/types/api";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
-type HttpMethod = "GET" | "POST" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 type RequestOptions = {
   /** HTTP statuses that still yield a successful ApiResult. */
@@ -58,6 +58,13 @@ export async function apiPost<T>(
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   return apiRequest<T>("POST", path, options);
+}
+
+export async function apiPatch<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  return apiRequest<T>("PATCH", path, options);
 }
 
 export async function apiDelete<T>(

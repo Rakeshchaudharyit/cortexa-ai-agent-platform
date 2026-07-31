@@ -214,8 +214,8 @@ describe("PlatformCapabilities", () => {
   });
 });
 
-describe("HomePage Phase 6 status", () => {
-  it("shows Phase 6 milestone and no Phase 4 copy", async () => {
+describe("HomePage Phase 7 status", () => {
+  it("shows Phase 7 milestone and Long-Term Memory capability", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -315,21 +315,26 @@ describe("HomePage Phase 6 status", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("phase-badge")).toHaveTextContent("Phase 6 — Agent Tools");
+      expect(screen.getByTestId("phase-badge")).toHaveTextContent(
+        "Phase 7 — Long-Term Memory & Personalization",
+      );
     });
 
-    expect(screen.getByText("Current milestone: Agent Tools & Function Calling")).toBeTruthy();
+    expect(screen.getByText("Current milestone: Long-Term Memory & Personalization")).toBeTruthy();
     expect(screen.getByTestId("platform-status-badge")).toHaveTextContent(
       "Platform status: Development-ready",
     );
     expect(screen.queryByText(/Phase 4/i)).toBeNull();
+    expect(screen.queryByText(/Phase 6 — Agent Tools/i)).toBeNull();
 
     await waitFor(() => {
       expect(screen.getByTestId("quick-action-tools").getAttribute("href")).toBe("/tools");
     });
+    expect(screen.getByTestId("quick-action-memories").getAttribute("href")).toBe("/memories");
     expect(screen.getByTestId("agent-tools-overview")).toBeTruthy();
     expect(screen.getByTestId("capabilities-summary")).toBeTruthy();
     expect(screen.getByTestId("capability-agent-tools")).toBeTruthy();
+    expect(screen.getByTestId("capability-long-term-memory")).toBeTruthy();
 
     const body = document.body.textContent ?? "";
     expect(body).not.toMatch(/cortexa_agent(_test)?/i);

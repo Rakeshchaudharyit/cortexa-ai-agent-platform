@@ -107,6 +107,14 @@ export async function authenticatedPost<T>(
   return authenticatedRequest<T>("POST", path, { json, acceptStatuses });
 }
 
+export async function authenticatedPatch<T>(
+  path: string,
+  json?: unknown,
+  acceptStatuses?: number[],
+): Promise<AuthResult<T>> {
+  return authenticatedRequest<T>("PATCH", path, { json, acceptStatuses });
+}
+
 export async function authenticatedDelete(
   path: string,
 ): Promise<AuthResult<null>> {
@@ -126,7 +134,7 @@ export async function authenticatedUpload<T>(
 }
 
 async function authenticatedRequest<T>(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   options: {
     json?: unknown;

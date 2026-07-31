@@ -10,10 +10,15 @@ import {
   streamMessage,
 } from "@/services/conversations";
 import { listDocuments } from "@/services/documents";
+import { updateConversationMemory } from "@/services/memories";
 import { useStream } from "@/lib/useStream";
 import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
 import { ChatComposer, type ComposerDocument } from "@/components/chat/ChatComposer";
 import { MessageList } from "@/components/chat/MessageList";
+import {
+  MemoryActivity,
+  type MemoryActivityState,
+} from "@/components/memory/MemoryActivity";
 
 type StreamingState = {
   content: string;
@@ -35,6 +40,8 @@ export function ChatPanel({ conversationId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
   const [availableDocuments, setAvailableDocuments] = useState<ComposerDocument[]>([]);
+  const [memoryActivity, setMemoryActivity] = useState<MemoryActivityState>({});
+  const [memoryEnabled, setMemoryEnabled] = useState<boolean | null>(null);
 
   // Track current conversation to cancel stream on switch.
   const convIdRef = useRef(conversationId);
@@ -47,6 +54,7 @@ export function ChatPanel({ conversationId }: Props) {
     setError(null);
     setMessages([]);
     setStreaming(null);
+    setMemoryActivity({});
     cancel();
 
     const result = await getConversation(id);
@@ -62,6 +70,10 @@ export function ChatPanel({ conversationId }: Props) {
     }
 
     setMessages(result.data.messages.filter((m) => m.is_active));
+    setMemoryEnabled(result.data.memory_enabled ?? null);
+    setMemoryActivity({
+      enabled: result.data.memory_enabled !== false,
+    });
   }, [cancel, router]);
 
   useEffect(() => {
@@ -255,6 +267,52 @@ export function ChatPanel({ conversationId }: Props) {
             };
           });
         },
+        onMemoryEvent: (event) => {
+          if (event.event === "memory_retrieval_started") {
+            setMemoryActivity((prev) => ({ ...prev, retrieving: true }));
+          } else if (event.event === "memory_retrieval_completed") {
+            setMemoryActivity((prev) => ({
+              ...prev,
+              retrieving: false,
+              count: event.data.count,
+              references: event.data.references,
+              enabled: true,
+            }));
+          } else if (event.event === "memory_candidate_proposed") {
+            setMemoryActivity((prev) => ({
+              ...prev,
+              proposed: {
+                title: event.data.title,
+                category: event.data.category,
+                reason: event.data.reason,
+              },
+            }));
+          } else if (event.event === "memory_saved") {
+            setMemoryActivity((prev) => ({
+              ...prev,
+              savedMessage: event.data.title
+                ? `Preference saved: ${event.data.title}`
+                : "Preference saved",
+              proposed: null,
+            }));
+          } else if (event.event === "memory_archived") {
+            const titles = event.data.titles?.join(", ");
+            setMemoryActivity((prev) => ({
+              ...prev,
+              forgottenMessage: titles ? `Memory removed: ${titles}` : "Memory removed",
+            }));
+          } else if (event.event === "memory_updated") {
+            if (event.data.action === "disabled_for_conversation") {
+              setMemoryEnabled(false);
+              setMemoryActivity({ enabled: false });
+            }
+          } else if (event.event === "memory_action_failed") {
+            setMemoryActivity((prev) => ({
+              ...prev,
+              failedMessage: event.data.message || "Memory action failed",
+            }));
+          }
+        },
         onComplete: () => {
           setStreaming(null);
           void loadConversation(id);
@@ -269,6 +327,16 @@ export function ChatPanel({ conversationId }: Props) {
         },
       },
     );
+  }
+
+  async function handleMemoryToggle(next: boolean) {
+    const result = await updateConversationMemory(conversationId, next);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setMemoryEnabled(next);
+    setMemoryActivity({ enabled: next });
   }
 
   async function handleEdit(messageId: string, content: string) {
@@ -308,6 +376,22 @@ export function ChatPanel({ conversationId }: Props) {
           </button>
         </div>
       )}
+
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-2"
+        data-testid="chat-memory-controls"
+      >
+        <MemoryActivity activity={memoryActivity} />
+        <label className="flex items-center gap-2 text-xs text-slate-400">
+          <span>Use memory</span>
+          <input
+            type="checkbox"
+            checked={memoryEnabled !== false}
+            data-testid="conversation-memory-toggle"
+            onChange={(e) => void handleMemoryToggle(e.target.checked)}
+          />
+        </label>
+      </div>
 
       <MessageList
         messages={messages}

@@ -60,6 +60,12 @@ function toolsStatus(info: SystemInfoResponse | null, loaded: boolean): Capabili
   return info.features.tools ? "available" : "disabled";
 }
 
+function memoryStatus(info: SystemInfoResponse | null, loaded: boolean): CapabilityStatus {
+  if (!loaded) return "available";
+  if (!info) return "unavailable";
+  return info.features.memory ? "available" : "disabled";
+}
+
 function infraStatus(
   health: HealthResponse | null,
   readiness: ReadinessResponse | null,
@@ -158,6 +164,14 @@ export function PlatformCapabilities() {
       description: "Persistent tool status, duration, safe arguments, and results",
       status: toolsStatus(info, loaded),
       testId: "capability-tool-auditing",
+    },
+    {
+      key: "long-term-memory",
+      title: "Long-Term Memory",
+      description:
+        "User-controlled preferences, project context, retrieval, and deletion across conversations.",
+      status: memoryStatus(info, loaded),
+      testId: "capability-long-term-memory",
     },
     {
       key: "infrastructure",

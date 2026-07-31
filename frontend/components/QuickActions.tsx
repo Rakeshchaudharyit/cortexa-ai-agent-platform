@@ -27,6 +27,13 @@ const ACTIONS = [
     requiresAuth: true,
   },
   {
+    href: "/memories",
+    label: "Manage Memories",
+    description: "Review and control long-term memory",
+    testId: "quick-action-memories",
+    requiresAuth: true,
+  },
+  {
     href: "/#system-status",
     label: "System Status",
     description: "API, database, Redis, and LLM health",

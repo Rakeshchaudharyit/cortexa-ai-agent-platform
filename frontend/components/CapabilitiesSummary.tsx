@@ -7,6 +7,7 @@ const CAPABILITIES = [
   "Persistent multi-turn conversations",
   "Native Ollama tool calling",
   "Auditable tool executions",
+  "User-controlled long-term memory",
   "Role and ownership enforcement",
   "Isolated development and test databases",
 ] as const;
@@ -17,7 +18,7 @@ export function CapabilitiesSummary() {
       <div>
         <h2 className="text-lg font-semibold text-slate-100">Project capabilities</h2>
         <p className="mt-1 text-sm text-slate-400">
-          What this Phase 6 local platform delivers today.
+          What this Phase 7 local platform delivers today.
         </p>
       </div>
       <ul className="grid gap-2 sm:grid-cols-2">

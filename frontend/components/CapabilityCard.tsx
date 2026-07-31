@@ -64,11 +64,6 @@ export function CapabilityCard({
 /** Upcoming (not yet shipped) capabilities — not shown as live platform cards. */
 export const UPCOMING_CAPABILITIES: CapabilityCardProps[] = [
   {
-    title: "Long-term Memory",
-    description: "Cross-conversation and profile memory across sessions.",
-    status: "coming_later",
-  },
-  {
     title: "Voice Interaction",
     description: "Local speech-to-text and text-to-speech.",
     status: "coming_later",

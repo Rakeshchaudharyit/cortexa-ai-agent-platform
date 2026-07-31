@@ -63,6 +63,13 @@ export function AuthHeader() {
             >
               Tool History
             </Link>
+            <Link
+              href="/memories"
+              className={navClass(Boolean(pathname?.startsWith("/memories")))}
+              data-testid="memories-link"
+            >
+              Memories
+            </Link>
             {/* Admin-only navigation is intentionally omitted — no admin UI is shipped yet. */}
             <button
               type="button"

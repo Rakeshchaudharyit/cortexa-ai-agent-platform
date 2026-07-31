@@ -312,7 +312,7 @@ Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
 - PDF text extraction only (no OCR); encrypted PDFs rejected
 - Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)
 - Deleted conversations are not restorable; token fields may be null from the provider
-- Home page remains operator/status + documents; `/chat` is the conversation product surface
+- Home page is the Phase 6 platform overview (capabilities, quick actions, system status) plus documents; `/chat` is the conversation product surface; `/tools` shows owned tool execution history
 
 ---
 

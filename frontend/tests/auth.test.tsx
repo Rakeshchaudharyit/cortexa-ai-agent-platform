@@ -416,6 +416,26 @@ describe("authentication UI", () => {
     expect(getAccessToken()).toBe("access-token-memory-only");
   });
 
+  it("hides admin-only navigation for normal users", async () => {
+    stubAuthApi({
+      refresh: () => Response.json(authTokenResponse()),
+      me: () => Response.json(demoUser({ role: "user" })),
+    });
+
+    render(
+      <AuthProvider>
+        <AuthHeader />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-user-display")).toHaveTextContent("Demo User");
+    });
+    expect(screen.queryByTestId("admin-nav-link")).toBeNull();
+    expect(screen.getByTestId("auth-nav").textContent?.toLowerCase()).not.toContain("admin");
+    expect(screen.getByTestId("tools-link").getAttribute("href")).toBe("/tools");
+  });
+
   it("logs out and clears in-memory token", async () => {
     setAccessToken("access-token-memory-only");
     stubAuthApi({

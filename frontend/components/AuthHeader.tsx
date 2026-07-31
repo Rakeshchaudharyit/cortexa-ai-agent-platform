@@ -5,6 +5,14 @@ import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
 
+function navClass(active: boolean): string {
+  return `rounded-lg px-3 py-2 text-sm font-medium transition ring-1 ${
+    active
+      ? "bg-cyan-500/25 text-cyan-100 ring-cyan-400/40"
+      : "bg-slate-500/20 text-slate-100 ring-slate-400/30 hover:bg-slate-500/30"
+  }`;
+}
+
 export function AuthHeader() {
   const { status, user, logout } = useAuth();
   const pathname = usePathname();
@@ -31,20 +39,31 @@ export function AuthHeader() {
           </p>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-testid="auth-nav">
         {status === "loading" ? null : status === "authenticated" ? (
           <>
             <Link
               href="/chat"
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition ring-1 ${
-                pathname?.startsWith("/chat")
-                  ? "bg-cyan-500/25 text-cyan-100 ring-cyan-400/40"
-                  : "bg-slate-500/20 text-slate-100 ring-slate-400/30 hover:bg-slate-500/30"
-              }`}
+              className={navClass(Boolean(pathname?.startsWith("/chat")))}
               data-testid="chat-link"
             >
               Chat
             </Link>
+            <Link
+              href="/#documents"
+              className={navClass(false)}
+              data-testid="documents-link"
+            >
+              Documents
+            </Link>
+            <Link
+              href="/tools"
+              className={navClass(Boolean(pathname?.startsWith("/tools")))}
+              data-testid="tools-link"
+            >
+              Tool History
+            </Link>
+            {/* Admin-only navigation is intentionally omitted — no admin UI is shipped yet. */}
             <button
               type="button"
               onClick={() => {

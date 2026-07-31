@@ -151,11 +151,15 @@ Conversation detail responses include per-message `tool_executions` for refresh.
 
 ## Frontend
 
+- Phase 6 platform overview on the home page (capability cards, agent tools section, quick actions)
+- Chat composer modes: **General Agent** (`document_ids: []`, tools enabled) and **Document Knowledge** (RAG over owned docs)
 - Live tool activity in chat via SSE (`ToolActivity` / `ToolExecutionCard`)
 - Restored tool cards after reload from message `tool_executions`
 - History page at `/tools`
 - Friendly status text (“Using calculator…”, etc.)
 - Expandable safe result JSON; no stack traces
+
+**Note:** Document Knowledge with zero retrieval hits may stop before the agent loop. Use General Agent for tool calling.
 
 ## Security controls
 

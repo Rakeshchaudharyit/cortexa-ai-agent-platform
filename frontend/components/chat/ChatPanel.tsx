@@ -9,9 +9,10 @@ import {
   regenerate,
   streamMessage,
 } from "@/services/conversations";
+import { listDocuments } from "@/services/documents";
 import { useStream } from "@/lib/useStream";
 import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
-import { ChatComposer } from "@/components/chat/ChatComposer";
+import { ChatComposer, type ComposerDocument } from "@/components/chat/ChatComposer";
 import { MessageList } from "@/components/chat/MessageList";
 
 type StreamingState = {
@@ -33,6 +34,7 @@ export function ChatPanel({ conversationId }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
+  const [availableDocuments, setAvailableDocuments] = useState<ComposerDocument[]>([]);
 
   // Track current conversation to cancel stream on switch.
   const convIdRef = useRef(conversationId);
@@ -65,6 +67,25 @@ export function ChatPanel({ conversationId }: Props) {
   useEffect(() => {
     void loadConversation(conversationId);
   }, [conversationId, loadConversation]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await listDocuments();
+      if (cancelled || !result.ok) return;
+      setAvailableDocuments(
+        result.data.items
+          .filter((doc) => doc.status === "ready")
+          .map((doc) => ({
+            id: doc.id,
+            label: doc.original_filename,
+          })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSend(content: string, documentIds: string[] | null) {
     const id = conversationId;
@@ -300,6 +321,7 @@ export function ChatPanel({ conversationId }: Props) {
         onSend={handleSend}
         isStreaming={isStreaming}
         onCancel={cancel}
+        availableDocuments={availableDocuments}
       />
     </div>
   );

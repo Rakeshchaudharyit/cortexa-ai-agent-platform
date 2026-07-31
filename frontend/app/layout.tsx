@@ -8,7 +8,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Cortexa AI Agent Platform",
   description:
-    "Production-Ready AI Agent Platform foundation — FastAPI, PostgreSQL, Redis, authentication, and local-first architecture.",
+    "Secure local AI assistant with authentication, document intelligence, persistent conversations, and auditable agent tools.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

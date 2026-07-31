@@ -1,13 +1,17 @@
-# Cortexa Frontend — Phase 5
+# Cortexa Frontend — Phase 6
 
-See the repository root [README.md](../README.md), [docs/RAG.md](../docs/RAG.md), and [docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md) for setup, documents, and chat.
+See the repository root [README.md](../README.md), [docs/AGENT_TOOLS.md](../docs/AGENT_TOOLS.md),
+[docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md), and [docs/RAG.md](../docs/RAG.md) for setup.
 
 ## Surfaces
 
-- System status (health, readiness, LLM, feature flags)
+- Platform overview (Phase 6 milestone, capability cards, quick actions)
+- System status (API, database, Redis, LLM, RAG/embeddings, agent tools flag)
 - Auth (`/login`, `/register`, header session controls)
 - Authenticated **Documents & grounded Q&A** panel on the home page
-- **Chat** (`/chat`, `/chat/[conversationId]`) — conversation sidebar, message list, streaming composer, citations
+- **Chat** (`/chat`, `/chat/[conversationId]`) — General Agent and Document Knowledge modes,
+  streaming composer, citations, live tool activity
+- **Tool history** (`/tools`) — owned agent tool execution audit trail
 
 ## API fetching decision
 

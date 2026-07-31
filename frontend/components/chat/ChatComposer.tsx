@@ -4,12 +4,18 @@ import { type KeyboardEvent, useRef, useState } from "react";
 
 const MAX_LENGTH = 100_000;
 
-type DocumentScope = "all" | "none" | "selected";
+type ChatMode = "general" | "documents";
+type DocumentScope = "all" | "selected";
+
+export type ComposerDocument = {
+  id: string;
+  label: string;
+};
 
 type Props = {
   disabled?: boolean;
   isStreaming?: boolean;
-  availableDocumentIds?: string[];
+  availableDocuments?: ComposerDocument[];
   onSend: (content: string, documentIds: string[] | null) => void;
   onCancel?: () => void;
 };
@@ -17,11 +23,12 @@ type Props = {
 export function ChatComposer({
   disabled,
   isStreaming,
-  availableDocumentIds,
+  availableDocuments = [],
   onSend,
   onCancel,
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [mode, setMode] = useState<ChatMode>("general");
   const [docScope, setDocScope] = useState<DocumentScope>("all");
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -31,9 +38,10 @@ export function ChatComposer({
   const canSend = draft.trim().length > 0 && !disabled && !isStreaming && !overLimit;
 
   function resolveDocumentIds(): string[] | null {
-    if (docScope === "all") return null;        // null = all owned documents
-    if (docScope === "none") return [];          // [] = general LLM (no retrieval)
-    return Array.from(selectedDocs);             // explicit IDs
+    // General Agent: empty list skips RAG so the agent/tool loop can run.
+    if (mode === "general") return [];
+    if (docScope === "all") return null; // null = all owned documents
+    return Array.from(selectedDocs);
   }
 
   function handleSend() {
@@ -66,46 +74,78 @@ export function ChatComposer({
       aria-label="Message composer"
       data-testid="chat-composer"
     >
-      {/* Document scope control */}
-      {availableDocumentIds && availableDocumentIds.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="doc-scope-control">
-          <span className="text-xs text-slate-500">Sources:</span>
-          <ScopeButton active={docScope === "all"} onClick={() => setDocScope("all")}>
-            All documents
-          </ScopeButton>
-          <ScopeButton active={docScope === "none"} onClick={() => setDocScope("none")}>
-            General chat (no docs)
+      <div className="mb-2 flex flex-col gap-2" data-testid="chat-mode-control">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500">Mode:</span>
+          <ScopeButton
+            active={mode === "general"}
+            onClick={() => setMode("general")}
+            testId="mode-general-agent"
+          >
+            General Agent
           </ScopeButton>
           <ScopeButton
-            active={docScope === "selected"}
-            onClick={() => setDocScope("selected")}
+            active={mode === "documents"}
+            onClick={() => setMode("documents")}
+            testId="mode-document-knowledge"
           >
-            Selected…
+            Document Knowledge
           </ScopeButton>
-          {docScope === "selected" && (
-            <div className="flex flex-wrap gap-1 mt-1 w-full" data-testid="doc-selector">
-              {availableDocumentIds.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => toggleDoc(id)}
-                  className={`rounded px-2 py-0.5 text-xs transition ring-1 ${
-                    selectedDocs.has(id)
-                      ? "bg-cyan-500/20 text-cyan-200 ring-cyan-400/30"
-                      : "bg-slate-800/60 text-slate-400 ring-white/10 hover:text-slate-200"
-                  }`}
-                  aria-pressed={selectedDocs.has(id)}
-                  aria-label={`Toggle document ${id}`}
-                >
-                  {id.slice(0, 8)}…
-                </button>
-              ))}
-            </div>
-          )}
         </div>
-      )}
 
-      {/* Textarea row */}
+        {mode === "general" ? (
+          <p className="text-xs text-slate-500" data-testid="general-agent-hint">
+            Use AI chat and approved tools. Document retrieval is skipped so agent tools can run.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-slate-500" data-testid="document-knowledge-hint">
+              Ask questions grounded in selected documents. Agent tools are not used in this mode
+              when retrieval finds no context.
+            </p>
+            {availableDocuments.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2" data-testid="doc-scope-control">
+                <span className="text-xs text-slate-500">Sources:</span>
+                <ScopeButton active={docScope === "all"} onClick={() => setDocScope("all")}>
+                  All documents
+                </ScopeButton>
+                <ScopeButton
+                  active={docScope === "selected"}
+                  onClick={() => setDocScope("selected")}
+                >
+                  Selected…
+                </ScopeButton>
+                {docScope === "selected" && (
+                  <div className="mt-1 flex w-full flex-wrap gap-1" data-testid="doc-selector">
+                    {availableDocuments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        onClick={() => toggleDoc(doc.id)}
+                        className={`rounded px-2 py-0.5 text-xs transition ring-1 ${
+                          selectedDocs.has(doc.id)
+                            ? "bg-cyan-500/20 text-cyan-200 ring-cyan-400/30"
+                            : "bg-slate-800/60 text-slate-400 ring-white/10 hover:text-slate-200"
+                        }`}
+                        aria-pressed={selectedDocs.has(doc.id)}
+                        aria-label={`Toggle document ${doc.label}`}
+                      >
+                        {doc.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-200/90" data-testid="no-documents-hint">
+                No documents uploaded yet. Upload files from the home page, or switch to General
+                Agent.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-end gap-2">
         <div className="relative flex-1">
           <textarea
@@ -152,7 +192,6 @@ export function ChatComposer({
         )}
       </div>
 
-      {/* Character count feedback */}
       {len > MAX_LENGTH * 0.8 && (
         <p
           className={`mt-1 text-right text-xs ${overLimit ? "text-rose-400" : "text-slate-500"}`}
@@ -170,16 +209,19 @@ function ScopeButton({
   active,
   onClick,
   children,
+  testId,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      data-testid={testId}
       className={`rounded px-2 py-0.5 text-xs transition ring-1 ${
         active
           ? "bg-cyan-500/20 text-cyan-200 ring-cyan-400/30"

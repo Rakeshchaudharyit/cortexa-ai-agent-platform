@@ -435,7 +435,7 @@ describe("ChatComposer", () => {
     const input = screen.getByTestId("composer-input");
     fireEvent.change(input, { target: { value: "Hello!" } });
     fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
-    expect(onSend).toHaveBeenCalledWith("Hello!", null);
+    expect(onSend).toHaveBeenCalledWith("Hello!", []);
   });
 
   it("does not send on Shift+Enter (newline)", () => {
@@ -473,44 +473,67 @@ describe("ChatComposer", () => {
     expect(input.value).toBe("");
   });
 
-  it("passes document_ids=null when scope is 'all'", () => {
-    const onSend = vi.fn();
-    render(
-      <ChatComposer
-        onSend={onSend}
-        availableDocumentIds={["doc-1", "doc-2"]}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "Hi" } });
-    fireEvent.click(screen.getByTestId("send-button"));
-    expect(onSend).toHaveBeenCalledWith("Hi", null);
+  it("exposes General Agent and Document Knowledge modes", () => {
+    render(<ChatComposer onSend={vi.fn()} />);
+    expect(screen.getByTestId("mode-general-agent")).toBeTruthy();
+    expect(screen.getByTestId("mode-document-knowledge")).toBeTruthy();
+    expect(screen.getByTestId("general-agent-hint")).toHaveTextContent(/approved tools/i);
   });
 
-  it("passes document_ids=[] when scope is 'none' (general chat)", () => {
+  it("defaults to General Agent and passes document_ids=[]", () => {
     const onSend = vi.fn();
-    render(
-      <ChatComposer
-        onSend={onSend}
-        availableDocumentIds={["doc-1"]}
-      />,
-    );
-    // Click "General chat" scope button.
-    const noneBtn = screen.getByText("General chat (no docs)");
-    fireEvent.click(noneBtn);
+    render(<ChatComposer onSend={onSend} />);
     fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "Hi" } });
     fireEvent.click(screen.getByTestId("send-button"));
     expect(onSend).toHaveBeenCalledWith("Hi", []);
   });
 
-  it("renders document selector when scope is 'selected'", () => {
+  it("passes document_ids=null in Document Knowledge with all documents", () => {
+    const onSend = vi.fn();
+    render(
+      <ChatComposer
+        onSend={onSend}
+        availableDocuments={[
+          { id: "doc-1", label: "notes.txt" },
+          { id: "doc-2", label: "readme.md" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("mode-document-knowledge"));
+    expect(screen.getByTestId("document-knowledge-hint")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "Hi" } });
+    fireEvent.click(screen.getByTestId("send-button"));
+    expect(onSend).toHaveBeenCalledWith("Hi", null);
+  });
+
+  it("keeps tool explanation visible in General Agent mode", () => {
     render(
       <ChatComposer
         onSend={vi.fn()}
-        availableDocumentIds={["doc-aabbcc", "doc-112233"]}
+        availableDocuments={[{ id: "doc-1", label: "a.txt" }]}
       />,
     );
+    expect(screen.getByTestId("general-agent-hint")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("mode-document-knowledge"));
+    expect(screen.queryByTestId("general-agent-hint")).toBeNull();
+    fireEvent.click(screen.getByTestId("mode-general-agent"));
+    expect(screen.getByTestId("general-agent-hint")).toHaveTextContent(/approved tools/i);
+  });
+
+  it("renders document selector when Document Knowledge selected scope is used", () => {
+    render(
+      <ChatComposer
+        onSend={vi.fn()}
+        availableDocuments={[
+          { id: "doc-aabbcc", label: "alpha.txt" },
+          { id: "doc-112233", label: "beta.txt" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("mode-document-knowledge"));
     fireEvent.click(screen.getByText("Selected…"));
     expect(screen.getByTestId("doc-selector")).toBeTruthy();
+    expect(screen.getByText("alpha.txt")).toBeTruthy();
   });
 });
 

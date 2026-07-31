@@ -29,22 +29,20 @@ Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a 
 - Expose an enterprise-grade operator dashboard with analytics
 - Deploy with Docker, PostgreSQL, and Redis on a single machine
 
-Phase 4 adds private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 adds persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI — on top of Phase 1–3 infrastructure and authentication.
+Phase 4 added private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 added persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI. Phase 6 adds secure built-in agent tools with native Ollama tool calling, execution history, and frontend tool visibility.
 
 ---
 
-## What Phase 5 Implements
+## What Phase 6 Implements
 
 | Capability | Status |
 | --- | --- |
-| Phase 1–4 foundation + auth + RAG | Preserved |
-| Conversation CRUD, archive, search | Implemented |
-| Multi-turn chat with RAG + history + rolling summary | Implemented |
-| SSE streaming + citation events | Implemented |
-| Edit latest user message / regenerate assistant | Implemented |
-| Usage summary API | Implemented |
-| `/chat` frontend (sidebar, composer, citations) | Implemented |
-| Conversation tests + docs | Implemented |
+| Phase 1–5 foundation + auth + RAG + conversations | Preserved |
+| Built-in tools (calculator, datetime, knowledge search, summary) | Implemented |
+| Tool registry, executor, orchestrator, SSE tool events | Implemented |
+| Persistent `tool_executions` audit history | Implemented |
+| `/tools` history UI + in-chat tool activity | Implemented |
+| Phase 6 platform overview on the home page | Implemented |
 
 ## What Remains Unavailable
 
@@ -53,7 +51,7 @@ Phase 4 adds private document upload, local embeddings, pgvector retrieval, and 
 | Cross-conversation / profile memory | Not implemented |
 | Organization / tenant management | Not implemented |
 | Social login / production password-reset email | Not implemented (dev reset CLI + in-app reset exist) |
-| Agent tools / voice | Not implemented |
+| External SaaS tools / voice | Not implemented |
 | Analytics / admin modules | Not implemented |
 | Automatic model downloads | Intentionally disabled |
 
@@ -158,6 +156,7 @@ This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, fro
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phased plan |
 | [docs/RAG.md](docs/RAG.md) | Documents, embeddings, retrieval |
 | [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md) | Phase 5 conversations & chat |
+| [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) | Phase 6 agent tools & auditing |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security posture |
 
 ---

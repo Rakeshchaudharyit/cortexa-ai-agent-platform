@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { CapabilityCard, PLANNED_CAPABILITIES } from "@/components/CapabilityCard";
+import { CapabilityCard, UPCOMING_CAPABILITIES } from "@/components/CapabilityCard";
 import { StatusIndicator, toneFromCheck } from "@/components/StatusIndicator";
+import { getEmbeddingStatus } from "@/services/documents";
 import {
   fetchHealth,
   fetchLLMStatus,
@@ -11,6 +12,7 @@ import {
   fetchSystemInfo,
 } from "@/services/system";
 import type {
+  EmbeddingStatusResponse,
   HealthResponse,
   LLMStatusResponse,
   ReadinessResponse,
@@ -39,23 +41,43 @@ function llmTone(
   return "error";
 }
 
+function embeddingTone(
+  emb: EmbeddingStatusResponse | null,
+  loading: boolean,
+  backendUnavailable: boolean,
+): "ok" | "error" | "pending" | "unknown" {
+  if (backendUnavailable) return "unknown";
+  if (loading || !emb) return "pending";
+  if (emb.status === "ready" || emb.model_available) return "ok";
+  if (emb.provider_reachable) return "pending";
+  return "error";
+}
+
+function featureLabel(enabled: boolean | undefined, loaded: boolean): string {
+  if (!loaded) return "Checking…";
+  if (enabled === undefined) return "Unknown";
+  return enabled ? "Available" : "Disabled";
+}
+
 export function SystemStatusPanel() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
   const [llm, setLlm] = useState<LLMStatusResponse | null>(null);
+  const [embedding, setEmbedding] = useState<EmbeddingStatusResponse | null>(null);
   const [message, setMessage] = useState<string>("Checking backend…");
 
   const refresh = useCallback(async () => {
     setLoadState("loading");
     setMessage("Checking backend…");
 
-    const [healthResult, readyResult, infoResult, llmResult] = await Promise.all([
+    const [healthResult, readyResult, infoResult, llmResult, embResult] = await Promise.all([
       fetchHealth(),
       fetchReadiness(),
       fetchSystemInfo(),
       fetchLLMStatus(),
+      getEmbeddingStatus(),
     ]);
 
     if (!healthResult.ok) {
@@ -63,6 +85,7 @@ export function SystemStatusPanel() {
       setReadiness(null);
       setInfo(null);
       setLlm(null);
+      setEmbedding(null);
       setLoadState("unavailable");
       setMessage(healthResult.error);
       return;
@@ -72,6 +95,7 @@ export function SystemStatusPanel() {
     setReadiness(readyResult.ok ? readyResult.data : null);
     setInfo(infoResult.ok ? infoResult.data : null);
     setLlm(llmResult.ok ? llmResult.data : null);
+    setEmbedding(embResult.ok ? embResult.data : null);
     setLoadState("loaded");
 
     if (!readyResult.ok) {
@@ -89,6 +113,7 @@ export function SystemStatusPanel() {
 
   const loading = loadState === "loading";
   const backendUnavailable = loadState === "unavailable";
+  const loaded = loadState === "loaded";
   const backendTone =
     loadState === "loading" ? "pending" : loadState === "loaded" ? "ok" : "error";
   const readinessTone =
@@ -103,7 +128,7 @@ export function SystemStatusPanel() {
             : "unknown";
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-10" id="system-status" data-testid="system-status-panel">
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -127,9 +152,9 @@ export function SystemStatusPanel() {
             tone={backendTone}
             detail={
               loadState === "unavailable"
-                ? "Unreachable"
+                ? "Unavailable"
                 : health
-                  ? `Liveness ${health.status}`
+                  ? `Healthy · liveness ${health.status}`
                   : "Checking…"
             }
           />
@@ -142,9 +167,11 @@ export function SystemStatusPanel() {
             }
             detail={
               loadState === "unavailable"
-                ? "Unknown — backend offline"
-                : readiness?.checks.database.message ||
-                  (readiness?.checks.database.status === "ok" ? "Reachable" : "Checking…")
+                ? "Unavailable"
+                : readiness?.checks.database.status === "ok"
+                  ? readiness.checks.database.message || "Healthy"
+                  : readiness?.checks.database.message ||
+                    (loading ? "Checking…" : "Unavailable")
             }
           />
           <StatusIndicator
@@ -156,9 +183,11 @@ export function SystemStatusPanel() {
             }
             detail={
               loadState === "unavailable"
-                ? "Unknown — backend offline"
-                : readiness?.checks.redis.message ||
-                  (readiness?.checks.redis.status === "ok" ? "Reachable" : "Checking…")
+                ? "Unavailable"
+                : readiness?.checks.redis.status === "ok"
+                  ? readiness.checks.redis.message || "Healthy"
+                  : readiness?.checks.redis.message ||
+                    (loading ? "Checking…" : "Unavailable")
             }
           />
           <StatusIndicator
@@ -166,11 +195,11 @@ export function SystemStatusPanel() {
             tone={readinessTone}
             detail={
               loadState === "unavailable"
-                ? "Not verified"
+                ? "Unavailable"
                 : readiness?.status === "ready"
-                  ? "Ready"
+                  ? "Healthy"
                   : readiness?.status === "not_ready"
-                    ? "Not ready"
+                    ? "Unavailable"
                     : "Checking…"
             }
           />
@@ -190,10 +219,10 @@ export function SystemStatusPanel() {
       <section className="flex flex-col gap-4" data-testid="llm-status-section">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">Local LLM status</h2>
+            <h2 className="text-lg font-semibold text-slate-100">Local LLM &amp; retrieval</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Ollama provider reachability and configured model availability. Core readiness
-              does not require the model to be pulled.
+              Ollama reachability, configured model, and embedding/vector readiness. Core
+              readiness does not require models to be pulled.
             </p>
           </div>
           <button
@@ -205,11 +234,11 @@ export function SystemStatusPanel() {
             Refresh LLM status
           </button>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatusIndicator
             label="LLM provider"
             tone={llmTone(llm, loading, backendUnavailable)}
-            detail={llm?.provider ?? (backendUnavailable ? "Unknown" : "Checking…")}
+            detail={llm?.provider ?? (backendUnavailable ? "Unavailable" : "Checking…")}
           />
           <StatusIndicator
             label="Configured model"
@@ -230,10 +259,10 @@ export function SystemStatusPanel() {
             detail={
               llm
                 ? llm.provider_reachable
-                  ? "Reachable"
-                  : "Unreachable"
+                  ? "Healthy"
+                  : "Unavailable"
                 : backendUnavailable
-                  ? "Unknown — backend offline"
+                  ? "Unavailable"
                   : "Checking…"
             }
           />
@@ -253,11 +282,43 @@ export function SystemStatusPanel() {
             detail={
               llm
                 ? llm.model_available
-                  ? "Installed"
+                  ? "Available"
                   : llm.provider_reachable
                     ? "Not pulled yet"
-                    : "Unknown"
+                    : "Unavailable"
                 : "—"
+            }
+          />
+          <StatusIndicator
+            label="RAG vector storage"
+            tone={embeddingTone(embedding, loading, backendUnavailable)}
+            detail={
+              embedding
+                ? embedding.model_available || embedding.status === "ready"
+                  ? `Available · ${embedding.model}`
+                  : embedding.provider_reachable
+                    ? "Provider reachable · model not pulled"
+                    : "Unavailable"
+                : backendUnavailable
+                  ? "Unavailable"
+                  : "Checking…"
+            }
+          />
+          <StatusIndicator
+            label="Agent tools"
+            tone={
+              backendUnavailable
+                ? "unknown"
+                : loading
+                  ? "pending"
+                  : info?.features.tools
+                    ? "ok"
+                    : "unknown"
+            }
+            detail={
+              backendUnavailable
+                ? "Unavailable"
+                : featureLabel(info?.features.tools, loaded)
             }
           />
         </div>
@@ -270,13 +331,13 @@ export function SystemStatusPanel() {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Planned capabilities</h2>
+          <h2 className="text-lg font-semibold text-slate-100">Coming later</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Chat UI, RAG, memory, tools, and voice remain unavailable in Phase 3.
+            Cross-conversation memory and voice remain unimplemented.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {PLANNED_CAPABILITIES.map((capability) => (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {UPCOMING_CAPABILITIES.map((capability) => (
             <CapabilityCard key={capability.title} {...capability} />
           ))}
         </div>

@@ -5,15 +5,17 @@ import { useEffect, useState } from "react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { DataTable } from "@/components/admin/DataTable";
+import { ActionResultToast } from "@/components/admin/DeletionDialogs";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { fetchAdminTools, patchAdminTool } from "@/services/admin";
+import { fetchAdminTools, patchAdminTool, resetAdminToolConfiguration } from "@/services/admin";
 import type { AdminToolSummary } from "@/types/admin";
 
 export default function AdminToolsPage() {
   const [tools, setTools] = useState<AdminToolSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<AdminToolSummary | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [resetTarget, setResetTarget] = useState<AdminToolSummary | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
 
   async function reload() {
     setLoading(true);
@@ -30,13 +32,9 @@ export default function AdminToolsPage() {
     <div data-testid="admin-tools-page">
       <AdminPageHeader
         title="Agent Tools"
-        description="Enable or disable registered server tools. Arbitrary tool code cannot be uploaded."
+        description="Enable or disable registered server tools. Reset configuration restores registry defaults."
       />
-      {message ? (
-        <p className="mb-3 text-sm text-cyan-200" data-testid="admin-tools-message">
-          {message}
-        </p>
-      ) : null}
+      <ActionResultToast message={toast?.message ?? null} tone={toast?.tone} />
       <DataTable
         loading={loading}
         rows={tools.map((t) => ({ ...t, id: t.name }))}
@@ -61,14 +59,26 @@ export default function AdminToolsPage() {
             key: "actions",
             header: "",
             render: (t) => (
-              <button
-                type="button"
-                className="text-cyan-300 hover:underline"
-                data-testid={`admin-tool-toggle-${t.name}`}
-                onClick={() => setPending(t)}
-              >
-                {t.enabled ? "Disable" : "Enable"}
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  className="text-cyan-300 hover:underline"
+                  data-testid={`admin-tool-toggle-${t.name}`}
+                  onClick={() => setPending(t)}
+                >
+                  {t.enabled ? "Disable" : "Enable"}
+                </button>
+                {t.has_configuration ? (
+                  <button
+                    type="button"
+                    className="text-amber-300 hover:underline"
+                    data-testid={`admin-tool-reset-${t.name}`}
+                    onClick={() => setResetTarget(t)}
+                  >
+                    Reset configuration
+                  </button>
+                ) : null}
+              </div>
             ),
           },
         ]}
@@ -83,8 +93,32 @@ export default function AdminToolsPage() {
           if (!pending) return;
           void (async () => {
             const result = await patchAdminTool(pending.name, { enabled: !pending.enabled });
-            setMessage(result.ok ? `Updated ${pending.name}` : result.error);
+            setToast(
+              result.ok
+                ? { message: `Updated ${pending.name}`, tone: "success" }
+                : { message: result.error, tone: "error" },
+            );
             setPending(null);
+            await reload();
+          })();
+        }}
+      />
+      <ConfirmDialog
+        open={resetTarget !== null}
+        title="Reset configuration"
+        message={`Remove the persisted override for '${resetTarget?.name}' and restore server registry defaults.`}
+        confirmLabel="Reset configuration"
+        onCancel={() => setResetTarget(null)}
+        onConfirm={() => {
+          if (!resetTarget) return;
+          void (async () => {
+            const result = await resetAdminToolConfiguration(resetTarget.name);
+            setToast(
+              result.ok
+                ? { message: `Reset configuration for ${resetTarget.name}`, tone: "success" }
+                : { message: result.error, tone: "error" },
+            );
+            setResetTarget(null);
             await reload();
           })();
         }}

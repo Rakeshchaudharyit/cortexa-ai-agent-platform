@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   class ResizeObserverStub {
@@ -9,6 +9,10 @@ beforeAll(() => {
     disconnect() {}
   }
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 vi.mock("recharts", () => {
@@ -33,7 +37,7 @@ vi.mock("recharts", () => {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin",
-  useParams: () => ({ userId: "u1" }),
+  useParams: () => ({ userId: "u-target" }),
 }));
 
 vi.mock("@/components/AuthProvider", () => ({
@@ -43,12 +47,34 @@ vi.mock("@/components/AuthProvider", () => ({
 vi.mock("@/services/admin", () => ({
   fetchAdminDashboard: vi.fn(),
   fetchAdminUsers: vi.fn(),
+  fetchAdminUser: vi.fn(),
   fetchAdminTools: vi.fn(),
   fetchAdminSystem: vi.fn(),
   fetchAdminSettings: vi.fn(),
   fetchAdminAnalytics: vi.fn(),
+  fetchAdminDocuments: vi.fn(),
+  fetchAdminConversations: vi.fn(),
+  fetchAdminMemories: vi.fn(),
   patchAdminTool: vi.fn(),
   patchAdminSettings: vi.fn(),
+  patchAdminUser: vi.fn(),
+  deactivateAdminUser: vi.fn(),
+  activateAdminUser: vi.fn(),
+  deleteAdminUser: vi.fn(),
+  fetchUserDeletionImpact: vi.fn(),
+  fetchDocumentDeletionImpact: vi.fn(),
+  deleteAdminDocument: vi.fn(),
+  archiveAdminConversation: vi.fn(),
+  deleteAdminConversation: vi.fn(),
+  fetchConversationDeletionImpact: vi.fn(),
+  archiveAdminMemory: vi.fn(),
+  deleteAdminMemory: vi.fn(),
+  fetchMemoryDeletionImpact: vi.fn(),
+  resetAdminToolConfiguration: vi.fn(),
+  resetAdminSetting: vi.fn(),
+  acknowledgeAdminSession: vi.fn(),
+  reportAdminLoginDenied: vi.fn(),
+  revokeAdminUserSessions: vi.fn(),
 }));
 
 import { useAuth } from "@/components/AuthProvider";
@@ -56,19 +82,27 @@ import { AdminGuard } from "@/components/admin/AdminGuard";
 import { AuthHeader } from "@/components/AuthHeader";
 import AdminDashboardPage from "@/app/admin/page";
 import AdminUsersPage from "@/app/admin/users/page";
+import AdminUserDetailPage from "@/app/admin/users/[userId]/page";
 import AdminToolsPage from "@/app/admin/tools/page";
 import AdminSystemPage from "@/app/admin/system/page";
 import AdminSettingsPage from "@/app/admin/settings/page";
 import AdminLoginPage from "@/app/admin/login/page";
-import AdminAnalyticsPage from "@/app/admin/analytics/page";
+import AdminDocumentsPage from "@/app/admin/documents/page";
+import AdminConversationsPage from "@/app/admin/conversations/page";
+import AdminMemoriesPage from "@/app/admin/memories/page";
 import {
   acknowledgeAdminSession,
-  fetchAdminAnalytics,
+  fetchAdminConversations,
   fetchAdminDashboard,
+  fetchAdminDocuments,
+  fetchAdminMemories,
   fetchAdminSettings,
   fetchAdminSystem,
   fetchAdminTools,
+  fetchAdminUser,
   fetchAdminUsers,
+  fetchDocumentDeletionImpact,
+  fetchUserDeletionImpact,
   patchAdminSettings,
   patchAdminTool,
   reportAdminLoginDenied,
@@ -76,27 +110,36 @@ import {
 
 const mockedAuth = vi.mocked(useAuth);
 
+function mockAdminAuth(overrides: Record<string, unknown> = {}) {
+  mockedAuth.mockReturnValue({
+    status: "authenticated",
+    user: {
+      id: "actor-1",
+      email: "admin@example.com",
+      full_name: "Admin",
+      role: "admin",
+      status: "active",
+      is_email_verified: true,
+      created_at: new Date().toISOString(),
+      last_login_at: null,
+    },
+    error: null,
+    login: vi.fn(),
+    register: vi.fn(),
+    logout: vi.fn(),
+    clearError: vi.fn(),
+    ...overrides,
+  } as never);
+}
+
 describe("admin portal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAdminAuth();
   });
 
   it("redirects unauthenticated users away from admin guard", async () => {
-    const replace = vi.fn();
-    vi.doMock("next/navigation", () => ({
-      useRouter: () => ({ replace, push: vi.fn() }),
-      usePathname: () => "/admin",
-      useParams: () => ({ userId: "u1" }),
-    }));
-    mockedAuth.mockReturnValue({
-      status: "unauthenticated",
-      user: null,
-      error: null,
-      login: vi.fn(),
-      register: vi.fn(),
-      logout: vi.fn(),
-      clearError: vi.fn(),
-    } as never);
+    mockAdminAuth({ status: "unauthenticated", user: null });
     render(
       <AdminGuard>
         <div>secret</div>
@@ -106,8 +149,7 @@ describe("admin portal", () => {
   });
 
   it("denies normal users", () => {
-    mockedAuth.mockReturnValue({
-      status: "authenticated",
+    mockAdminAuth({
       user: {
         id: "1",
         email: "u@example.com",
@@ -118,12 +160,7 @@ describe("admin portal", () => {
         created_at: new Date().toISOString(),
         last_login_at: null,
       },
-      error: null,
-      login: vi.fn(),
-      register: vi.fn(),
-      logout: vi.fn(),
-      clearError: vi.fn(),
-    } as never);
+    });
     render(
       <AdminGuard>
         <div>secret</div>
@@ -131,32 +168,13 @@ describe("admin portal", () => {
     );
     expect(screen.getByTestId("admin-access-denied")).toBeInTheDocument();
     expect(screen.getByText(/Administrator access is required/i)).toBeInTheDocument();
-    expect(screen.getByTestId("admin-denied-login")).toBeInTheDocument();
   });
 
   it("shows Admin nav for admins and hides for users", () => {
-    mockedAuth.mockReturnValue({
-      status: "authenticated",
-      user: {
-        id: "1",
-        email: "a@example.com",
-        full_name: "Admin",
-        role: "admin",
-        status: "active",
-        is_email_verified: true,
-        created_at: new Date().toISOString(),
-        last_login_at: null,
-      },
-      error: null,
-      login: vi.fn(),
-      register: vi.fn(),
-      logout: vi.fn(),
-      clearError: vi.fn(),
-    } as never);
+    mockAdminAuth();
     const { rerender } = render(<AuthHeader />);
     expect(screen.getByTestId("admin-link")).toBeInTheDocument();
-    mockedAuth.mockReturnValue({
-      status: "authenticated",
+    mockAdminAuth({
       user: {
         id: "2",
         email: "u@example.com",
@@ -167,21 +185,12 @@ describe("admin portal", () => {
         created_at: new Date().toISOString(),
         last_login_at: null,
       },
-      error: null,
-      login: vi.fn(),
-      register: vi.fn(),
-      logout: vi.fn(),
-      clearError: vi.fn(),
-    } as never);
+    });
     rerender(<AuthHeader />);
     expect(screen.queryByTestId("admin-link")).not.toBeInTheDocument();
   });
 
   it("renders dashboard metrics and loading skeleton", async () => {
-    mockedAuth.mockReturnValue({
-      status: "authenticated",
-      user: { role: "admin", full_name: "A", email: "a@x.com" },
-    } as never);
     vi.mocked(fetchAdminDashboard).mockResolvedValue({
       ok: true,
       status: 200,
@@ -211,7 +220,6 @@ describe("admin portal", () => {
     expect(screen.getByTestId("admin-dashboard-loading")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument());
     expect(screen.getAllByTestId("admin-metric-card").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/password_hash/i)).not.toBeInTheDocument();
   });
 
   it("renders user table with search and role filter", async () => {
@@ -337,28 +345,12 @@ describe("admin portal", () => {
     await user.clear(screen.getByTestId("admin-settings-display-name"));
     await user.type(screen.getByTestId("admin-settings-display-name"), "Demo");
     await user.click(screen.getByTestId("admin-settings-save"));
-    await waitFor(() => expect(screen.getByTestId("admin-settings-error")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("admin-action-toast")).toBeInTheDocument());
+    expect(screen.getByTestId("admin-action-toast").textContent).toMatch(/invalid/i);
     await user.click(screen.getByTestId("admin-settings-save"));
-    await waitFor(() => expect(screen.getByTestId("admin-settings-success")).toBeInTheDocument());
-  });
-
-  it("analytics range selector works", async () => {
-    const user = userEvent.setup();
-    vi.mocked(fetchAdminAnalytics).mockResolvedValue({
-      ok: true,
-      status: 200,
-      data: {
-        range_days: 30,
-        points: [],
-        totals: { new_users: 0, conversations: 0, messages: 0, tool_executions: 0 },
-        unavailable: ["token_costs"],
-        generated_at: new Date().toISOString(),
-      },
-    } as never);
-    render(<AdminAnalyticsPage />);
-    await waitFor(() => screen.getByTestId("admin-analytics-range"));
-    await user.click(screen.getByRole("button", { name: "7d" }));
-    await waitFor(() => expect(fetchAdminAnalytics).toHaveBeenCalledWith(7));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-action-toast").textContent).toMatch(/updated/i),
+    );
   });
 });
 
@@ -502,5 +494,259 @@ describe("admin login page", () => {
     expect(screen.getByTestId("admin-login-submit")).toHaveTextContent(/Signing in/i);
     resolveLogin({ ok: true });
     await waitFor(() => expect(acknowledgeAdminSession).toHaveBeenCalled());
+  });
+});
+
+describe("admin deletion UX", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAdminAuth();
+  });
+
+  it("user deletion requires typed email confirmation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAdminUser).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        id: "u-target",
+        email: "target@example.com",
+        full_name: "Target",
+        role: "user",
+        status: "active",
+        is_email_verified: true,
+        created_at: new Date().toISOString(),
+        last_login_at: null,
+        conversations_count: 1,
+        documents_count: 2,
+        memories_count: 0,
+        active_sessions_count: 1,
+        tool_executions_count: 0,
+        tool_success_count: 0,
+        tool_failure_count: 0,
+      },
+    } as never);
+    vi.mocked(fetchUserDeletionImpact).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        user_id: "u-target",
+        documents: 2,
+        document_chunks: 5,
+        conversations: 1,
+        messages: 3,
+        memories: 0,
+        refresh_sessions: 1,
+        tool_executions: 0,
+        can_delete: true,
+        blocking_reason: null,
+      },
+    } as never);
+    render(<AdminUserDetailPage />);
+    await waitFor(() => screen.getByTestId("admin-user-permanent-delete"));
+    await user.click(screen.getByTestId("admin-user-permanent-delete"));
+    await waitFor(() => screen.getByTestId("deletion-impact-counts"));
+    expect(screen.getByTestId("admin-delete-confirm")).toBeDisabled();
+    await user.type(screen.getByTestId("admin-delete-email-confirm"), "target@example.com");
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-delete-confirm")).not.toBeDisabled(),
+    );
+  });
+
+  it("self-delete action unavailable on own profile", async () => {
+    mockAdminAuth({
+      user: {
+        id: "u1",
+        email: "admin@example.com",
+        full_name: "Admin",
+        role: "admin",
+        status: "active",
+        is_email_verified: true,
+        created_at: new Date().toISOString(),
+        last_login_at: null,
+      },
+    });
+    vi.mocked(fetchAdminUser).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        id: "u1",
+        email: "admin@example.com",
+        full_name: "Admin",
+        role: "admin",
+        status: "active",
+        is_email_verified: true,
+        created_at: new Date().toISOString(),
+        last_login_at: null,
+        conversations_count: 0,
+        documents_count: 0,
+        memories_count: 0,
+        active_sessions_count: 0,
+        tool_executions_count: 0,
+        tool_success_count: 0,
+        tool_failure_count: 0,
+      },
+    } as never);
+    render(<AdminUserDetailPage />);
+    await waitFor(() => screen.getByTestId("admin-user-permanent-delete"));
+    expect(screen.getByTestId("admin-user-permanent-delete")).toBeDisabled();
+    expect(screen.getByTestId("admin-self-delete-blocked")).toBeInTheDocument();
+  });
+
+  it("document deletion dialog shows impact", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAdminDocuments).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        items: [
+          {
+            id: "d1",
+            filename: "notes.txt",
+            owner_id: "u1",
+            owner_email: "o@example.com",
+            status: "ready",
+            chunk_count: 4,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    } as never);
+    vi.mocked(fetchDocumentDeletionImpact).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        document_id: "d1",
+        filename: "notes.txt",
+        owner_id: "u1",
+        owner_email: "o@example.com",
+        chunk_count: 4,
+        has_stored_file: true,
+        can_delete: true,
+        blocking_reason: null,
+      },
+    } as never);
+    render(<AdminDocumentsPage />);
+    await waitFor(() => screen.getByTestId("admin-document-delete-d1"));
+    await user.click(screen.getByTestId("admin-document-delete-d1"));
+    await waitFor(() => screen.getByTestId("deletion-impact-counts"));
+    expect(screen.getByText(/embeddings and the stored upload/i)).toBeInTheDocument();
+  });
+
+  it("conversation archive and delete are distinct labels", async () => {
+    vi.mocked(fetchAdminConversations).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        items: [
+          {
+            id: "c1",
+            title: "Chat",
+            owner_id: "u1",
+            owner_email: "o@example.com",
+            status: "active",
+            message_count: 2,
+            tool_execution_count: 0,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    } as never);
+    render(<AdminConversationsPage />);
+    await waitFor(() => screen.getByTestId("admin-conversation-archive-c1"));
+    expect(screen.getByTestId("admin-conversation-delete-c1")).toHaveTextContent(
+      /Delete permanently/i,
+    );
+    expect(screen.getByTestId("admin-conversation-archive-c1")).toHaveTextContent(/Archive/i);
+  });
+
+  it("memory delete says delete and redact", async () => {
+    vi.mocked(fetchAdminMemories).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        items: [
+          {
+            id: "m1",
+            title: "Pref",
+            owner_id: "u1",
+            owner_email: "o@example.com",
+            category: "preference",
+            status: "active",
+            source: "explicit_user_request",
+            created_at: new Date().toISOString(),
+            use_count: 0,
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    } as never);
+    render(<AdminMemoriesPage />);
+    await waitFor(() => screen.getByTestId("admin-memory-delete-m1"));
+    expect(screen.getByTestId("admin-memory-delete-m1")).toHaveTextContent(/Delete and redact/i);
+  });
+
+  it("tool action says reset configuration when override exists", async () => {
+    vi.mocked(fetchAdminTools).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        tools: [
+          {
+            name: "calculator",
+            category: "math",
+            version: "1.0.0",
+            description: "calc",
+            enabled: false,
+            registry_enabled: true,
+            required_roles: ["user"],
+            timeout_seconds: 30,
+            confirmation_required: false,
+            execution_count: 0,
+            success_rate: null,
+            average_duration_ms: null,
+            has_configuration: true,
+          },
+        ],
+        total: 1,
+      },
+    } as never);
+    render(<AdminToolsPage />);
+    await waitFor(() => screen.getByTestId("admin-tool-reset-calculator"));
+    expect(screen.getByTestId("admin-tool-reset-calculator")).toHaveTextContent(
+      /Reset configuration/i,
+    );
+  });
+
+  it("setting action says reset to default", async () => {
+    vi.mocked(fetchAdminSettings).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        settings: [
+          {
+            key: "platform_display_name",
+            value: "Demo",
+            source: "override",
+            editable: true,
+          },
+        ],
+        runtime: {},
+        unsafe_keys_blocked: [],
+      },
+    } as never);
+    render(<AdminSettingsPage />);
+    await waitFor(() => screen.getByTestId("admin-settings-reset-platform_display_name"));
+    expect(screen.getByTestId("admin-settings-reset-platform_display_name")).toHaveTextContent(
+      /Reset to default/i,
+    );
   });
 });

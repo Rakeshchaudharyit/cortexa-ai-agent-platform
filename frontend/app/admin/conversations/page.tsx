@@ -1,46 +1,76 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { DataTable } from "@/components/admin/DataTable";
+import {
+  ActionResultToast,
+  DeletionImpactDialog,
+} from "@/components/admin/DeletionDialogs";
 import { FilterBar, FilterInput, FilterSelect } from "@/components/admin/FilterBar";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { fetchAdminConversations } from "@/services/admin";
+import {
+  archiveAdminConversation,
+  deleteAdminConversation,
+  fetchAdminConversations,
+  fetchConversationDeletionImpact,
+} from "@/services/admin";
+import type {
+  AdminConversationDeletionImpact,
+  AdminConversationSummary,
+} from "@/types/admin";
 
 export default function Page() {
-  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [rows, setRows] = useState<AdminConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [total, setTotal] = useState(0);
+  const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<AdminConversationSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminConversationSummary | null>(null);
+  const [impact, setImpact] = useState<AdminConversationDeletionImpact | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const params: Record<string, string | number | undefined> = { limit: 50 };
+    if (status) params.status = status;
+    if (q) params.search = q;
+    const result = await fetchAdminConversations(params);
+    if (result.ok) {
+      setRows(result.data.items);
+      setTotal(result.data.total);
+    } else {
+      setRows([]);
+      setTotal(0);
+    }
+    setLoading(false);
+  }, [q, status]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      setLoading(true);
-      const params: Record<string, string | number | undefined> = { limit: 50 };
-      if (status) params.status = status;
-      if (q) params.search = q;
-      const result = await fetchAdminConversations(params);
-      if (cancelled) return;
-      if (result.ok) {
-        setRows(result.data.items as Record<string, unknown>[]);
-        setTotal(result.data.total);
-      } else {
-        setRows([]);
-        setTotal(0);
-      }
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [q, status]);
+    void reload();
+  }, [reload]);
+
+  async function openDelete(row: AdminConversationSummary) {
+    const result = await fetchConversationDeletionImpact(row.id);
+    if (!result.ok) {
+      setToast({ message: result.error, tone: "error" });
+      return;
+    }
+    setImpact(result.data);
+    setDeleteTarget(row);
+  }
 
   return (
     <div data-testid="admin-conversations-page">
-      <AdminPageHeader title="Conversations" description="Administrative metadata view with privacy-safe fields." />
+      <AdminPageHeader
+        title="Conversations"
+        description="Archive for soft retention, or permanently delete messages and citations."
+      />
+      <ActionResultToast message={toast?.message ?? null} tone={toast?.tone} />
       <FilterBar>
         <FilterInput
           placeholder="Filter…"
@@ -55,43 +85,118 @@ export default function Page() {
         >
           <option value="">All</option>
           <option value="active">active</option>
-          <option value="ready">ready</option>
-          <option value="failed">failed</option>
-          <option value="succeeded">succeeded</option>
-          <option value="disabled">disabled</option>
+          <option value="archived">archived</option>
         </FilterSelect>
         <p className="ml-auto text-xs text-slate-500">{total} total</p>
       </FilterBar>
       <DataTable
         loading={loading}
-        rows={rows.map((r, index) => ({ ...r, id: String(r.id ?? index) })) as Array<Record<string, unknown> & { id: string }>}
+        rows={rows}
         columns={[
-          {
-            key: "primary",
-            header: "title",
-            render: (r: Record<string, unknown> & { id: string }) =>
-              String(r.title ?? r.safe_summary ?? r.filename ?? r.title ?? r.tool_name ?? "—"),
-          },
-          {
-            key: "owner",
-            header: "Owner / Actor",
-            render: (r: Record<string, unknown> & { id: string }) =>
-              String(r.owner_email ?? r.user_email ?? r.actor_email ?? "—"),
-          },
+          { key: "title", header: "Title", render: (r) => r.title || "—" },
+          { key: "owner", header: "Owner", render: (r) => r.owner_email ?? "—" },
           {
             key: "status",
-            header: "Status / Type",
-            render: (r: Record<string, unknown> & { id: string }) => (
-              <StatusBadge status={String(r.status ?? r.target_type ?? "unknown")} />
-            ),
+            header: "Status",
+            render: (r) => <StatusBadge status={r.status} />,
+          },
+          {
+            key: "messages",
+            header: "Messages",
+            render: (r) => String(r.message_count),
           },
           {
             key: "created",
             header: "Created",
-            render: (r: Record<string, unknown> & { id: string }) =>
-              new Date(String(r.created_at ?? r.started_at ?? Date.now())).toLocaleString(),
+            render: (r) => new Date(r.created_at).toLocaleString(),
+          },
+          {
+            key: "actions",
+            header: "",
+            render: (r) => (
+              <div className="flex flex-wrap gap-2">
+                {r.status !== "archived" ? (
+                  <button
+                    type="button"
+                    className="text-amber-300 hover:underline"
+                    data-testid={`admin-conversation-archive-${r.id}`}
+                    onClick={() => setArchiveTarget(r)}
+                  >
+                    Archive
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-rose-300 hover:underline"
+                  data-testid={`admin-conversation-delete-${r.id}`}
+                  onClick={() => void openDelete(r)}
+                >
+                  Delete permanently
+                </button>
+              </div>
+            ),
           },
         ]}
+      />
+      <ConfirmDialog
+        open={archiveTarget !== null}
+        title="Archive conversation"
+        message="Archiving hides the conversation from the active list. It can be restored by the owner."
+        confirmLabel="Archive"
+        onCancel={() => setArchiveTarget(null)}
+        onConfirm={() => {
+          if (!archiveTarget) return;
+          void (async () => {
+            const result = await archiveAdminConversation(archiveTarget.id);
+            setArchiveTarget(null);
+            setToast(
+              result.ok
+                ? { message: "Conversation archived", tone: "success" }
+                : { message: result.error, tone: "error" },
+            );
+            await reload();
+          })();
+        }}
+      />
+      <DeletionImpactDialog
+        open={deleteTarget !== null}
+        title="Permanently delete conversation"
+        warning="Messages and citations will be removed. Linked tool executions remain anonymized by conversation reference. Memory source links become null."
+        loading={deleting}
+        confirmLabel="Delete permanently"
+        confirmEnabled
+        impact={
+          impact
+            ? [
+                { label: "Title", value: impact.title || "—" },
+                { label: "Owner", value: impact.owner_email ?? "—" },
+                { label: "Messages", value: impact.messages },
+                { label: "Citations", value: impact.citations },
+                { label: "Tool executions", value: impact.tool_executions },
+                { label: "Linked memories", value: impact.linked_memories },
+              ]
+            : []
+        }
+        onCancel={() => {
+          setDeleteTarget(null);
+          setImpact(null);
+        }}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          void (async () => {
+            setDeleting(true);
+            const result = await deleteAdminConversation(deleteTarget.id);
+            setDeleting(false);
+            if (!result.ok) {
+              setToast({ message: result.error, tone: "error" });
+              return;
+            }
+            setDeleteTarget(null);
+            setImpact(null);
+            setToast({ message: "Conversation permanently deleted", tone: "success" });
+            await reload();
+          })();
+        }}
       />
     </div>
   );

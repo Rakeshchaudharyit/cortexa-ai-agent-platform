@@ -48,7 +48,7 @@ export default function AdminUsersPage() {
     <div data-testid="admin-users-page">
       <AdminPageHeader
         title="Users"
-        description="Search accounts, change roles, and disable access with audited confirmation."
+        description="Search accounts, deactivate access, or permanently delete with impact preview and typed confirmation."
       />
       <FilterBar>
         <FilterInput

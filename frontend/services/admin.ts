@@ -1,17 +1,22 @@
-import { apiGet, apiPatch, apiPost, apiRequest } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth-token";
 import type {
   AdminAnalyticsResponse,
   AdminAuditEventSummary,
+  AdminConversationDeletionImpact,
   AdminConversationSummary,
   AdminDashboardResponse,
+  AdminDocumentDeletionImpact,
   AdminDocumentSummary,
+  AdminMemoryDeletionImpact,
   AdminMemorySummary,
   AdminPaginated,
   AdminSettingsResponse,
   AdminSystemHealthResponse,
   AdminToolExecutionSummary,
   AdminToolSummary,
+  AdminUserDeleteResponse,
+  AdminUserDeletionImpact,
   AdminUserDetail,
   AdminUserSummary,
 } from "@/types/admin";
@@ -150,15 +155,102 @@ export async function patchAdminSettings(updates: Record<string, unknown>) {
   );
 }
 
-export async function deleteAdminDocument(documentId: string) {
+export async function resetAdminSetting(key: string) {
+  return apiDelete<{ settings: AdminSettingsResponse["settings"]; updated_keys: string[] }>(
+    `/api/v1/admin/settings/${encodeURIComponent(key)}`,
+    auth(),
+  );
+}
+
+export async function fetchUserDeletionImpact(userId: string) {
+  return apiGet<AdminUserDeletionImpact>(`/api/v1/admin/users/${userId}/deletion-impact`, auth());
+}
+
+export async function deactivateAdminUser(userId: string) {
+  return apiPost<{ user: AdminUserDetail; sessions_revoked: number }>(
+    `/api/v1/admin/users/${userId}/deactivate`,
+    { ...auth(), json: {} },
+  );
+}
+
+export async function activateAdminUser(userId: string) {
+  return apiPost<{ user: AdminUserDetail; sessions_revoked: number }>(
+    `/api/v1/admin/users/${userId}/activate`,
+    { ...auth(), json: {} },
+  );
+}
+
+export async function deleteAdminUser(userId: string, confirmationEmail: string) {
+  return apiDelete<AdminUserDeleteResponse>(`/api/v1/admin/users/${userId}`, {
+    ...auth(),
+    json: { confirmation_email: confirmationEmail },
+  });
+}
+
+export async function fetchDocumentDeletionImpact(documentId: string) {
+  return apiGet<AdminDocumentDeletionImpact>(
+    `/api/v1/admin/documents/${documentId}/deletion-impact`,
+    auth(),
+  );
+}
+
+export async function deleteAdminDocument(documentId: string, confirmationFilename: string) {
   return apiRequest<null>("DELETE", `/api/v1/admin/documents/${documentId}`, {
     ...auth(),
+    json: { confirmation_filename: confirmationFilename },
     acceptStatuses: [204],
   });
 }
 
 export async function reprocessAdminDocument(documentId: string) {
   return apiPost(`/api/v1/admin/documents/${documentId}/reprocess`, { ...auth(), json: {} });
+}
+
+export async function fetchConversationDeletionImpact(conversationId: string) {
+  return apiGet<AdminConversationDeletionImpact>(
+    `/api/v1/admin/conversations/${conversationId}/deletion-impact`,
+    auth(),
+  );
+}
+
+export async function archiveAdminConversation(conversationId: string) {
+  return apiPost<AdminConversationSummary>(
+    `/api/v1/admin/conversations/${conversationId}/archive`,
+    { ...auth(), json: {} },
+  );
+}
+
+export async function deleteAdminConversation(conversationId: string) {
+  return apiRequest<null>("DELETE", `/api/v1/admin/conversations/${conversationId}`, {
+    ...auth(),
+    json: { confirm: true },
+    acceptStatuses: [204],
+  });
+}
+
+export async function fetchMemoryDeletionImpact(memoryId: string) {
+  return apiGet<AdminMemoryDeletionImpact>(
+    `/api/v1/admin/memories/${memoryId}/deletion-impact`,
+    auth(),
+  );
+}
+
+export async function archiveAdminMemory(memoryId: string) {
+  return apiPost(`/api/v1/admin/memories/${memoryId}/archive`, { ...auth(), json: {} });
+}
+
+export async function deleteAdminMemory(memoryId: string) {
+  return apiRequest<null>("DELETE", `/api/v1/admin/memories/${memoryId}`, {
+    ...auth(),
+    acceptStatuses: [204],
+  });
+}
+
+export async function resetAdminToolConfiguration(toolName: string) {
+  return apiDelete<{ tool: AdminToolSummary }>(
+    `/api/v1/admin/tools/${encodeURIComponent(toolName)}/configuration`,
+    auth(),
+  );
 }
 
 export async function acknowledgeAdminSession() {

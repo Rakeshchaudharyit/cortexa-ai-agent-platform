@@ -156,7 +156,7 @@ export type AdminToolSummary = {
 export type AdminToolExecutionSummary = {
   id: string;
   tool_name: string;
-  user_id: string;
+  user_id: string | null;
   user_email?: string | null;
   conversation_id?: string | null;
   status: string;
@@ -221,4 +221,65 @@ export type AdminSettingsResponse = {
   settings: AdminSettingItem[];
   runtime: Record<string, unknown>;
   unsafe_keys_blocked: string[];
+};
+
+export type AdminUserDeletionImpact = {
+  user_id: string;
+  documents: number;
+  document_chunks: number;
+  conversations: number;
+  messages: number;
+  memories: number;
+  refresh_sessions: number;
+  tool_executions: number;
+  can_delete: boolean;
+  blocking_reason: string | null;
+};
+
+export type AdminUserDeleteResponse = {
+  user_id: string;
+  email_fingerprint: string;
+  documents_deleted: number;
+  document_chunks_deleted: number;
+  conversations_deleted: number;
+  messages_deleted: number;
+  memories_deleted: number;
+  refresh_sessions_revoked: number;
+  tool_executions_anonymized: number;
+  storage_cleanup_failures: number;
+};
+
+export type AdminDocumentDeletionImpact = {
+  document_id: string;
+  filename: string;
+  owner_id: string;
+  owner_email?: string | null;
+  chunk_count: number;
+  has_stored_file: boolean;
+  can_delete: boolean;
+  blocking_reason: string | null;
+};
+
+export type AdminConversationDeletionImpact = {
+  conversation_id: string;
+  title: string;
+  owner_id: string;
+  owner_email?: string | null;
+  messages: number;
+  citations: number;
+  tool_executions: number;
+  linked_memories: number;
+  can_delete: boolean;
+  blocking_reason: string | null;
+};
+
+export type AdminMemoryDeletionImpact = {
+  memory_id: string;
+  title: string;
+  owner_id: string;
+  owner_email?: string | null;
+  status: string;
+  has_embedding: boolean;
+  can_delete: boolean;
+  blocking_reason: string | null;
 };

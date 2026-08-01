@@ -9,7 +9,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.admin.service import AdminService
+from app.agents.definitions import create_default_agent_registry
+from app.agents.multi_agent import MultiAgentService
 from app.agents.orchestrator import AgentOrchestrator
+from app.agents.repository import AgentRunRepository
 from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -130,6 +133,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         memory_service=memory_service,
     )
     tool_service = ToolService(registry=tool_registry)
+    agent_registry = create_default_agent_registry()
+    agent_run_repository = AgentRunRepository(settings)
+    multi_agent_service = MultiAgentService(
+        settings=settings,
+        registry=agent_registry,
+        repository=agent_run_repository,
+        llm_service=llm_service,
+        retrieval_service=retrieval_service,
+        memory_service=memory_service,
+        memory_retriever=memory_retriever,
+        tool_executor=tool_executor,
+        tool_registry=tool_registry,
+    )
     agent_orchestrator = AgentOrchestrator(
         settings=settings,
         llm_service=llm_service,
@@ -147,6 +163,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         memory_service=memory_service,
         memory_retriever=memory_retriever,
         memory_extractor=memory_extractor,
+        multi_agent_service=multi_agent_service,
     )
     health_service = HealthService(
         settings=settings,
@@ -198,6 +215,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.memory_service = memory_service
     app.state.memory_retriever = memory_retriever
     app.state.memory_extractor = memory_extractor
+    app.state.agent_registry = agent_registry
+    app.state.agent_run_repository = agent_run_repository
+    app.state.multi_agent_service = multi_agent_service
     app.state.agent_orchestrator = agent_orchestrator
     app.state.chat_service = chat_service
     app.state.health_service = health_service

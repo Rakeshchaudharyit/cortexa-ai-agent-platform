@@ -1,6 +1,14 @@
 """ORM models."""
 
 from app.models.admin import AdminAuditEvent, PlatformSetting, ToolConfiguration
+from app.models.agent import (
+    AgentApproval,
+    AgentDefinition,
+    AgentHandoff,
+    AgentRun,
+    AgentRunEvent,
+    AgentTask,
+)
 from app.models.application_metadata import ApplicationMetadata
 from app.models.conversation import (
     DEFAULT_CONVERSATION_TITLE,
@@ -10,6 +18,10 @@ from app.models.conversation import (
 )
 from app.models.document import Document, DocumentChunk
 from app.models.enums import (
+    AgentApprovalStatus,
+    AgentExecutionMode,
+    AgentRunStatus,
+    AgentTaskStatus,
     ConversationStatus,
     DocumentStatus,
     MemoryAuditEventType,
@@ -32,6 +44,16 @@ from app.models.user import User
 __all__ = [
     "DEFAULT_CONVERSATION_TITLE",
     "AdminAuditEvent",
+    "AgentApproval",
+    "AgentApprovalStatus",
+    "AgentDefinition",
+    "AgentExecutionMode",
+    "AgentHandoff",
+    "AgentRun",
+    "AgentRunEvent",
+    "AgentRunStatus",
+    "AgentTask",
+    "AgentTaskStatus",
     "ApplicationMetadata",
     "Conversation",
     "ConversationStatus",

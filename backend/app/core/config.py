@@ -522,6 +522,50 @@ class Settings(BaseSettings):
         alias="MEMORY_DUPLICATE_SIMILARITY_THRESHOLD",
     )
 
+    # Multi-agent orchestration (Phase 9)
+    multi_agent_enabled: bool = Field(default=True, alias="MULTI_AGENT_ENABLED")
+    agent_max_tasks: int = Field(default=8, ge=1, le=16, alias="AGENT_MAX_TASKS")
+    agent_max_depth: int = Field(default=2, ge=0, le=4, alias="AGENT_MAX_DEPTH")
+    agent_max_steps: int = Field(default=12, ge=1, le=32, alias="AGENT_MAX_STEPS")
+    agent_max_llm_calls: int = Field(default=12, ge=1, le=32, alias="AGENT_MAX_LLM_CALLS")
+    agent_max_tool_calls: int = Field(default=8, ge=1, le=32, alias="AGENT_MAX_TOOL_CALLS")
+    agent_run_timeout_seconds: int = Field(
+        default=120,
+        ge=10,
+        le=600,
+        alias="AGENT_RUN_TIMEOUT_SECONDS",
+    )
+    agent_task_timeout_seconds: int = Field(
+        default=45,
+        ge=5,
+        le=300,
+        alias="AGENT_TASK_TIMEOUT_SECONDS",
+    )
+    agent_max_retries: int = Field(default=1, ge=0, le=3, alias="AGENT_MAX_RETRIES")
+    agent_max_replans: int = Field(default=1, ge=0, le=3, alias="AGENT_MAX_REPLANS")
+    agent_context_max_characters: int = Field(
+        default=24_000,
+        ge=1_000,
+        le=100_000,
+        alias="AGENT_CONTEXT_MAX_CHARACTERS",
+    )
+    agent_task_output_max_characters: int = Field(
+        default=8_000,
+        ge=200,
+        le=50_000,
+        alias="AGENT_TASK_OUTPUT_MAX_CHARACTERS",
+    )
+    agent_parallel_read_tasks_enabled: bool = Field(
+        default=False,
+        alias="AGENT_PARALLEL_READ_TASKS_ENABLED",
+    )
+    agent_max_parallel_read_tasks: int = Field(
+        default=2,
+        ge=1,
+        le=4,
+        alias="AGENT_MAX_PARALLEL_READ_TASKS",
+    )
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> list[str]:

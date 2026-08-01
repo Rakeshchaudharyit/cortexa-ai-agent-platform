@@ -98,6 +98,7 @@ class ChatService:
         memory_service: MemoryService | None = None,
         memory_retriever: MemoryRetriever | None = None,
         memory_extractor: MemoryExtractor | None = None,
+        multi_agent_service: Any | None = None,
     ) -> None:
         self.settings = settings
         self.conversation_service = conversation_service
@@ -111,10 +112,39 @@ class ChatService:
         self.memory_service = memory_service
         self.memory_retriever = memory_retriever
         self.memory_extractor = memory_extractor
+        self.multi_agent_service = multi_agent_service
 
     @property
     def tools_enabled(self) -> bool:
         return bool(self.settings.agent_tools_enabled and self.agent_orchestrator is not None)
+
+    @property
+    def multi_agent_enabled(self) -> bool:
+        return bool(self.settings.multi_agent_enabled and self.multi_agent_service is not None)
+
+    async def classify_complexity(
+        self,
+        *,
+        user_message: str,
+        conversation_mode: str = "general",
+        selected_document_ids: list[uuid.UUID] | None = None,
+        memory_enabled: bool = False,
+        explicit_memory_intent: bool = False,
+        selected_tool_intent: list[str] | None = None,
+        conversation_context_summary: str | None = None,
+    ) -> Any | None:
+        """Feature-gated complexity classification (Phase 9.2 internal)."""
+        if not self.multi_agent_enabled or self.multi_agent_service is None:
+            return None
+        return await self.multi_agent_service.classify(
+            user_message=user_message,
+            conversation_mode=conversation_mode,
+            selected_document_ids=selected_document_ids,
+            memory_enabled=memory_enabled,
+            explicit_memory_intent=explicit_memory_intent,
+            selected_tool_intent=selected_tool_intent,
+            conversation_context_summary=conversation_context_summary,
+        )
 
     async def _select_tools_for_turn(
         self,

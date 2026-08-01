@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from app.agents.definitions import create_default_agent_registry
+from app.agents.orchestrator import AgentOrchestrator
+from app.agents.repository import AgentRunRepository
 from app.api.deps import get_current_active_user
 from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, clear_settings_cache
@@ -475,7 +478,6 @@ def _wire_rag_services(
         summarizer=_fake_summarizer,
     )
 
-    from app.agents.orchestrator import AgentOrchestrator
     from app.memory.extractor import MemoryExtractor
     from app.memory.repository import MemoryRepository
     from app.memory.retrieval import MemoryRetriever
@@ -511,12 +513,28 @@ def _wire_rag_services(
         tool_registry=tool_registry,
         tool_executor=tool_executor,
     )
+    agent_registry = create_default_agent_registry()
+    agent_run_repository = AgentRunRepository(settings)
+    from app.agents.multi_agent import MultiAgentService
+
+    multi_agent_service = MultiAgentService(
+        settings=settings,
+        registry=agent_registry,
+        repository=agent_run_repository,
+        llm_service=llm_service,
+        retrieval_service=retrieval_service,
+        memory_service=memory_service,
+        memory_retriever=memory_retriever,
+        tool_executor=tool_executor,
+        tool_registry=tool_registry,
+    )
     # Keep tools off by default for existing chat compatibility tests.
     # Tool-focused suites enable AGENT_TOOLS_ENABLED and rebind chat_service.
     chat_service.agent_orchestrator = None
     chat_service.memory_service = memory_service
     chat_service.memory_retriever = memory_retriever
     chat_service.memory_extractor = memory_extractor
+    chat_service.multi_agent_service = multi_agent_service
 
     application.state.health_service = StubHealthService(settings)
     application.state.auth_service = AuthService.from_settings(settings)
@@ -548,6 +566,9 @@ def _wire_rag_services(
     application.state.memory_retriever = memory_retriever
     application.state.memory_extractor = memory_extractor
     application.state.agent_orchestrator = agent_orchestrator
+    application.state.agent_registry = agent_registry
+    application.state.agent_run_repository = agent_run_repository
+    application.state.multi_agent_service = multi_agent_service
     application.state.chat_service = chat_service
 
 

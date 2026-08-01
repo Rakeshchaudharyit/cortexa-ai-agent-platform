@@ -122,3 +122,47 @@ class MemoryAuditEventType(StrEnum):
     deleted = "deleted"
     expired = "expired"
     conflict_superseded = "conflict_superseded"
+
+
+class AgentExecutionMode(StrEnum):
+    """Whether a run uses the single-agent chat path or multi-agent coordination."""
+
+    single_agent = "single_agent"
+    multi_agent = "multi_agent"
+
+
+class AgentRunStatus(StrEnum):
+    """Lifecycle for a bounded multi-agent run."""
+
+    pending = "pending"
+    planning = "planning"
+    running = "running"
+    awaiting_approval = "awaiting_approval"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+    timed_out = "timed_out"
+
+
+class AgentTaskStatus(StrEnum):
+    """Lifecycle for an individual agent task within a run."""
+
+    pending = "pending"
+    ready = "ready"
+    running = "running"
+    awaiting_approval = "awaiting_approval"
+    succeeded = "succeeded"
+    failed = "failed"
+    skipped = "skipped"
+    cancelled = "cancelled"
+    timed_out = "timed_out"
+
+
+class AgentApprovalStatus(StrEnum):
+    """User approval resolution for sensitive write actions."""
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    expired = "expired"
+    cancelled = "cancelled"

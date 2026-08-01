@@ -9,6 +9,7 @@
 | [AGENT_TOOLS.md](AGENT_TOOLS.md) | Phase 6 agent tools, executor, audit history |
 | [LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md) | Phase 7 long-term memory, privacy, APIs |
 | [ENTERPRISE_ADMIN_PORTAL.md](ENTERPRISE_ADMIN_PORTAL.md) | Phase 8 enterprise admin portal, RBAC, APIs |
+| [MULTI_AGENT_ORCHESTRATION.md](MULTI_AGENT_ORCHESTRATION.md) | Phase 9 multi-agent foundation + execution (backend) |
 | [ROADMAP.md](ROADMAP.md) | Phases 0–13 with acceptance criteria |
 | [SECURITY.md](SECURITY.md) | Local-first security model |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Coding standards, troubleshooting |

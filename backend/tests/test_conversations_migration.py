@@ -45,8 +45,8 @@ async def test_conversation_enums_exist(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_alembic_at_phase8_head(db_session: AsyncSession) -> None:
+async def test_alembic_at_phase9_head(db_session: AsyncSession) -> None:
     result = await db_session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "0010_admin_deletion_controls"
+    assert row[0] == "0011_multi_agent_orchestration"

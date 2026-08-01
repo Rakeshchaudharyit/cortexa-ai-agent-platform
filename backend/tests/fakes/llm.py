@@ -40,6 +40,12 @@ class FakeLLMProvider:
 
     This is deliberately deterministic and must never be presented as a real LLM.
     Supports scripted tool-call turns via ``scripted_turns`` or ``turn_factory``.
+
+    Phase 9.2 multi-agent tests also script JSON content for:
+    - valid / invalid / malformed agent plans
+    - safety allow / block decisions
+    - specialist synthesis responses
+    - provider timeout / unavailable via ``fail_mode``
     """
 
     def __init__(

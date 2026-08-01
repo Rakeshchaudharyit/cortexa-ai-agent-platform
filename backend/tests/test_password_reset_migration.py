@@ -86,9 +86,10 @@ def test_migration_chain_includes_password_reset() -> None:
     assert "0008_long_term_memory" in revisions
     assert "0009_enterprise_admin" in revisions
     assert "0010_admin_deletion_controls" in revisions
+    assert "0011_multi_agent_orchestration" in revisions
     assert "0004_phase5_conversations" in revisions
     head = script.get_current_head()
-    assert head == "0010_admin_deletion_controls"
+    assert head == "0011_multi_agent_orchestration"
 
 
 def test_orm_model_fields_align() -> None:

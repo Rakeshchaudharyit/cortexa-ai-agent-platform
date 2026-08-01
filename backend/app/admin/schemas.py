@@ -151,6 +151,79 @@ class AdminRevokeSessionsResponse(BaseModel):
     sessions_revoked: int
 
 
+class AdminUserDeletionImpact(BaseModel):
+    user_id: uuid.UUID
+    documents: int = 0
+    document_chunks: int = 0
+    conversations: int = 0
+    messages: int = 0
+    memories: int = 0
+    refresh_sessions: int = 0
+    tool_executions: int = 0
+    can_delete: bool = False
+    blocking_reason: str | None = None
+
+
+class AdminUserDeleteRequest(BaseModel):
+    confirmation_email: str = Field(..., min_length=3, max_length=320)
+
+
+class AdminUserDeleteResponse(BaseModel):
+    user_id: uuid.UUID
+    email_fingerprint: str
+    documents_deleted: int = 0
+    document_chunks_deleted: int = 0
+    conversations_deleted: int = 0
+    messages_deleted: int = 0
+    memories_deleted: int = 0
+    refresh_sessions_revoked: int = 0
+    tool_executions_anonymized: int = 0
+    storage_cleanup_failures: int = 0
+
+
+class AdminDocumentDeletionImpact(BaseModel):
+    document_id: uuid.UUID
+    filename: str
+    owner_id: uuid.UUID
+    owner_email: str | None = None
+    chunk_count: int = 0
+    has_stored_file: bool = False
+    can_delete: bool = True
+    blocking_reason: str | None = None
+
+
+class AdminConversationDeletionImpact(BaseModel):
+    conversation_id: uuid.UUID
+    title: str
+    owner_id: uuid.UUID
+    owner_email: str | None = None
+    messages: int = 0
+    citations: int = 0
+    tool_executions: int = 0
+    linked_memories: int = 0
+    can_delete: bool = True
+    blocking_reason: str | None = None
+
+
+class AdminMemoryDeletionImpact(BaseModel):
+    memory_id: uuid.UUID
+    title: str
+    owner_id: uuid.UUID
+    owner_email: str | None = None
+    status: MemoryStatus
+    has_embedding: bool = False
+    can_delete: bool = True
+    blocking_reason: str | None = None
+
+
+class AdminDestructiveConfirmRequest(BaseModel):
+    confirm: bool = False
+
+
+class AdminDocumentDeleteRequest(BaseModel):
+    confirmation_filename: str = Field(..., min_length=1, max_length=512)
+
+
 # ── Documents ──────────────────────────────────────────────────────────────
 
 
@@ -286,7 +359,7 @@ class AdminToolUpdateResponse(BaseModel):
 class AdminToolExecutionSummary(BaseModel):
     id: uuid.UUID
     tool_name: str
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
     user_email: str | None = None
     conversation_id: uuid.UUID | None = None
     status: ToolExecutionStatus

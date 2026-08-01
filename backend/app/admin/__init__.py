@@ -8,6 +8,7 @@ from app.admin.exceptions import (
     AdminNotFoundError,
     AdminValidationError,
     LastAdminProtectionError,
+    SelfDeletionError,
 )
 from app.admin.policies import (
     ADMIN_PAGE_DEFAULT,
@@ -29,6 +30,7 @@ __all__ = [
     "AdminService",
     "AdminValidationError",
     "LastAdminProtectionError",
+    "SelfDeletionError",
     "is_safe_setting_key",
     "record_admin_action",
 ]

@@ -40,3 +40,21 @@ async def update_settings(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
+
+
+@router.delete("/settings/{key}", response_model=AdminSettingsUpdateResponse)
+async def reset_setting(
+    key: str,
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminSettingsUpdateResponse:
+    return await admin.reset_setting(
+        session,
+        actor=admin_user,
+        key=key,
+        request_id=request_id_ctx.get(),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )

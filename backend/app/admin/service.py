@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.analytics import daterange_days, empty_analytics_points, merge_series
 from app.admin.audit import record_admin_action
+from app.admin.deletion import AdminUserDeletionService
 from app.admin.exceptions import (
     AdminNotFoundError,
     AdminValidationError,
@@ -29,13 +30,16 @@ from app.admin.schemas import (
     AdminAnalyticsResponse,
     AdminAuditEventSummary,
     AdminAuditListResponse,
+    AdminConversationDeletionImpact,
     AdminConversationDetail,
     AdminConversationListResponse,
     AdminConversationSummary,
     AdminDashboardResponse,
+    AdminDocumentDeletionImpact,
     AdminDocumentDetail,
     AdminDocumentListResponse,
     AdminDocumentSummary,
+    AdminMemoryDeletionImpact,
     AdminMemoryDetail,
     AdminMemoryListResponse,
     AdminMemorySummary,
@@ -57,6 +61,8 @@ from app.admin.schemas import (
     AdminToolUpdateResponse,
     AdminToolUsageStat,
     AdminTrendPoint,
+    AdminUserDeleteResponse,
+    AdminUserDeletionImpact,
     AdminUserDetail,
     AdminUserListResponse,
     AdminUserSummary,
@@ -95,6 +101,7 @@ class AdminService:
         tool_registry: ToolRegistry | None = None,
         document_service: Any | None = None,
         memory_service: Any | None = None,
+        conversation_service: Any | None = None,
         health_service: Any | None = None,
         repository: AdminRepository | None = None,
     ) -> None:
@@ -103,8 +110,14 @@ class AdminService:
         self.tool_registry = tool_registry
         self.document_service = document_service
         self.memory_service = memory_service
+        self.conversation_service = conversation_service
         self.health_service = health_service
         self.repo = repository or AdminRepository()
+        self.user_deletion = AdminUserDeletionService(
+            auth_service=auth_service,
+            document_service=document_service,
+            repository=self.repo,
+        )
 
     async def refresh_tool_overrides(self, session: AsyncSession) -> None:
         if self.tool_registry is None:
@@ -426,6 +439,99 @@ class AdminService:
         await session.commit()
         return AdminRevokeSessionsResponse(user_id=user.id, sessions_revoked=revoked)
 
+    async def deactivate_user(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        user_id: uuid.UUID,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminUserUpdateResponse:
+        return await self.update_user(
+            session,
+            actor=actor,
+            user_id=user_id,
+            status=UserStatus.disabled,
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+    async def activate_user(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        user_id: uuid.UUID,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminUserUpdateResponse:
+        return await self.update_user(
+            session,
+            actor=actor,
+            user_id=user_id,
+            status=UserStatus.active,
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+    async def get_user_deletion_impact(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        user_id: uuid.UUID,
+    ) -> AdminUserDeletionImpact:
+        impact = await self.user_deletion.get_impact(session, actor=actor, user_id=user_id)
+        return AdminUserDeletionImpact(
+            user_id=impact.user_id,
+            documents=impact.documents,
+            document_chunks=impact.document_chunks,
+            conversations=impact.conversations,
+            messages=impact.messages,
+            memories=impact.memories,
+            refresh_sessions=impact.refresh_sessions,
+            tool_executions=impact.tool_executions,
+            can_delete=impact.can_delete,
+            blocking_reason=impact.blocking_reason,
+        )
+
+    async def delete_user(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        user_id: uuid.UUID,
+        confirmation_email: str,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminUserDeleteResponse:
+        result = await self.user_deletion.delete_user(
+            session,
+            actor=actor,
+            user_id=user_id,
+            confirmation_email=confirmation_email,
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        return AdminUserDeleteResponse(
+            user_id=result.user_id,
+            email_fingerprint=result.email_fingerprint,
+            documents_deleted=result.documents_deleted,
+            document_chunks_deleted=result.document_chunks_deleted,
+            conversations_deleted=result.conversations_deleted,
+            messages_deleted=result.messages_deleted,
+            memories_deleted=result.memories_deleted,
+            refresh_sessions_revoked=result.refresh_sessions_revoked,
+            tool_executions_anonymized=result.tool_executions_anonymized,
+            storage_cleanup_failures=result.storage_cleanup_failures,
+        )
 
     async def record_admin_login_success(
         self,
@@ -565,13 +671,22 @@ class AdminService:
         *,
         actor: User,
         document_id: uuid.UUID,
+        confirmation_filename: str | None = None,
         request_id: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> None:
         document, owner = await self.repo.get_document(session, document_id)
+        confirmed = (
+            confirmation_filename is not None
+            and confirmation_filename.strip() == document.original_filename
+        )
+        if confirmation_filename is not None and not confirmed:
+            raise AdminValidationError("Confirmation filename does not match the document")
         if self.document_service is None:
             raise AdminValidationError("Document service unavailable")
+        filename = document.original_filename
+        chunk_count = document.chunk_count
         # Reuse ownership-scoped delete by acting as owner for storage cleanup.
         await self.document_service.delete_document(session, owner, document_id)
         await record_admin_action(
@@ -582,10 +697,26 @@ class AdminService:
             target_id=str(document_id),
             target_user_id=owner.id,
             safe_summary="Document deleted by administrator",
+            metadata={"filename": filename[:128], "chunk_count": chunk_count},
             request_id=request_id,
             ip_address=ip_address,
             user_agent=user_agent,
             commit=True,
+        )
+
+    async def get_document_deletion_impact(
+        self, session: AsyncSession, document_id: uuid.UUID
+    ) -> AdminDocumentDeletionImpact:
+        document, owner = await self.repo.get_document(session, document_id)
+        return AdminDocumentDeletionImpact(
+            document_id=document.id,
+            filename=document.original_filename,
+            owner_id=owner.id,
+            owner_email=owner.email,
+            chunk_count=document.chunk_count,
+            has_stored_file=bool(document.storage_key),
+            can_delete=True,
+            blocking_reason=None,
         )
 
     # ── Conversations ──────────────────────────────────────────────────────
@@ -658,6 +789,91 @@ class AdminService:
             failed_message_count=data["failed_message_count"],
             tool_timeline=timeline,
         )
+
+    async def get_conversation_deletion_impact(
+        self, session: AsyncSession, conversation_id: uuid.UUID
+    ) -> AdminConversationDeletionImpact:
+        data = await self.repo.get_conversation(session, conversation_id)
+        conv = data["conversation"]
+        owner: User = data["owner"]
+        citations = await self.repo.conversation_citation_count(session, conversation_id)
+        linked_memories = await self.repo.conversation_linked_memory_count(session, conversation_id)
+        return AdminConversationDeletionImpact(
+            conversation_id=conv.id,
+            title=conv.title,
+            owner_id=owner.id,
+            owner_email=owner.email,
+            messages=data["message_count"],
+            citations=citations,
+            tool_executions=data["tool_execution_count"],
+            linked_memories=linked_memories,
+            can_delete=True,
+            blocking_reason=None,
+        )
+
+    async def archive_conversation(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        conversation_id: uuid.UUID,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminConversationDetail:
+        if self.conversation_service is None:
+            raise AdminValidationError("Conversation service unavailable")
+        data = await self.repo.get_conversation(session, conversation_id)
+        owner: User = data["owner"]
+        await self.conversation_service.archive_conversation(session, owner, conversation_id)
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="conversation_archived",
+            target_type="conversation",
+            target_id=str(conversation_id),
+            target_user_id=owner.id,
+            safe_summary="Conversation archived by administrator",
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await session.commit()
+        return await self.get_conversation(session, conversation_id)
+
+    async def delete_conversation(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        conversation_id: uuid.UUID,
+        confirm: bool = False,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
+        if not confirm:
+            raise AdminValidationError("Confirmation required to permanently delete a conversation")
+        if self.conversation_service is None:
+            raise AdminValidationError("Conversation service unavailable")
+        data = await self.repo.get_conversation(session, conversation_id)
+        owner: User = data["owner"]
+        message_count = data["message_count"]
+        await self.conversation_service.delete_conversation(session, owner, conversation_id)
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="conversation_permanently_deleted",
+            target_type="conversation",
+            target_id=str(conversation_id),
+            target_user_id=owner.id,
+            safe_summary="Conversation permanently deleted by administrator",
+            metadata={"messages": message_count},
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await session.commit()
 
     # ── Memories ───────────────────────────────────────────────────────────
 
@@ -762,6 +978,26 @@ class AdminService:
     async def delete_memory(self, session: AsyncSession, **kwargs: Any) -> None:
         await self._memory_owner_action(session, action="delete", **kwargs)
 
+    async def get_memory_deletion_impact(
+        self, session: AsyncSession, memory_id: uuid.UUID
+    ) -> AdminMemoryDeletionImpact:
+        memory, owner = await self.repo.get_memory(session, memory_id)
+        title = memory.title if memory.status != MemoryStatus.deleted else "[deleted]"
+        return AdminMemoryDeletionImpact(
+            memory_id=memory.id,
+            title=title,
+            owner_id=owner.id,
+            owner_email=owner.email,
+            status=memory.status,
+            has_embedding=memory.embedding is not None,
+            can_delete=memory.status != MemoryStatus.deleted,
+            blocking_reason=(
+                "Memory is already deleted/redacted"
+                if memory.status == MemoryStatus.deleted
+                else None
+            ),
+        )
+
     # ── Tools ──────────────────────────────────────────────────────────────
 
     async def list_tools(self, session: AsyncSession) -> AdminToolListResponse:
@@ -859,6 +1095,40 @@ class AdminService:
             raise AdminNotFoundError("Tool not found after update")
         return AdminToolUpdateResponse(tool=match)
 
+    async def reset_tool_configuration(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        tool_name: str,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminToolUpdateResponse:
+        if self.tool_registry is None or not self.tool_registry.has(tool_name):
+            raise AdminNotFoundError("Unknown tool")
+        deleted = await self.repo.delete_tool_configuration(session, tool_name)
+        if not deleted:
+            raise AdminNotFoundError("No persisted tool configuration override to reset")
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="tool_configuration_reset",
+            target_type="tool",
+            target_id=tool_name,
+            safe_summary=f"Tool '{tool_name}' configuration reset to registry defaults",
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await session.commit()
+        await self.refresh_tool_overrides(session)
+        tools = await self.list_tools(session)
+        match = next((t for t in tools.tools if t.name == tool_name), None)
+        if match is None:
+            raise AdminNotFoundError("Tool not found after reset")
+        return AdminToolUpdateResponse(tool=match)
+
     # ── Tool executions ────────────────────────────────────────────────────
 
     async def list_tool_executions(
@@ -873,8 +1143,8 @@ class AdminService:
             AdminToolExecutionSummary(
                 id=execution.id,
                 tool_name=execution.tool_name,
-                user_id=owner.id,
-                user_email=owner.email,
+                user_id=owner.id if owner is not None else None,
+                user_email=owner.email if owner is not None else None,
                 conversation_id=execution.conversation_id,
                 status=execution.status,
                 started_at=execution.started_at,
@@ -893,8 +1163,8 @@ class AdminService:
         base = AdminToolExecutionSummary(
             id=execution.id,
             tool_name=execution.tool_name,
-            user_id=owner.id,
-            user_email=owner.email,
+            user_id=owner.id if owner is not None else None,
+            user_email=owner.email if owner is not None else None,
             conversation_id=execution.conversation_id,
             status=execution.status,
             started_at=execution.started_at,
@@ -1178,3 +1448,34 @@ class AdminService:
         await session.commit()
         settings = await self.get_settings(session)
         return AdminSettingsUpdateResponse(settings=settings.settings, updated_keys=updated_keys)
+
+    async def reset_setting(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        key: str,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AdminSettingsUpdateResponse:
+        if not is_safe_setting_key(key):
+            raise AdminValidationError(f"Setting key '{key}' is not editable")
+        deleted = await self.repo.delete_platform_setting(session, key)
+        if not deleted:
+            raise AdminNotFoundError("No database override exists for this setting")
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="settings_reset",
+            target_type="settings",
+            target_id=key,
+            safe_summary=f"Reset setting '{key}' to environment/default configuration",
+            metadata={"key": key},
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await session.commit()
+        settings = await self.get_settings(session)
+        return AdminSettingsUpdateResponse(settings=settings.settings, updated_keys=[key])

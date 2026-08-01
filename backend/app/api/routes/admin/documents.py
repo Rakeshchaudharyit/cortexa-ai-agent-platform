@@ -8,7 +8,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response
 
-from app.admin.schemas import AdminDocumentDetail, AdminDocumentListResponse
+from app.admin.schemas import (
+    AdminDocumentDeleteRequest,
+    AdminDocumentDeletionImpact,
+    AdminDocumentDetail,
+    AdminDocumentListResponse,
+)
 from app.api.deps import AdminServiceDep, CurrentAdminUser, DbSessionDep
 from app.core.logging import request_id_ctx
 from app.models.enums import DocumentStatus
@@ -52,6 +57,19 @@ async def get_document(
     return await admin.get_document(session, document_id, include_excerpts=include_excerpts)
 
 
+@router.get(
+    "/documents/{document_id}/deletion-impact",
+    response_model=AdminDocumentDeletionImpact,
+)
+async def get_document_deletion_impact(
+    document_id: uuid.UUID,
+    _admin: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminDocumentDeletionImpact:
+    return await admin.get_document_deletion_impact(session, document_id)
+
+
 @router.post("/documents/{document_id}/reprocess", response_model=AdminDocumentDetail)
 async def reprocess_document(
     document_id: uuid.UUID,
@@ -73,6 +91,7 @@ async def reprocess_document(
 @router.delete("/documents/{document_id}", status_code=204, response_class=Response)
 async def delete_document(
     document_id: uuid.UUID,
+    body: AdminDocumentDeleteRequest,
     request: Request,
     admin_user: CurrentAdminUser,
     session: DbSessionDep,
@@ -82,6 +101,7 @@ async def delete_document(
         session,
         actor=admin_user,
         document_id=document_id,
+        confirmation_filename=body.confirmation_filename,
         request_id=request_id_ctx.get(),
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),

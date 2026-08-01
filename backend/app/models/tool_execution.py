@@ -44,10 +44,10 @@ class ToolExecution(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -99,7 +99,7 @@ class ToolExecution(Base):
         onupdate=func.now(),
     )
 
-    user: Mapped[User] = relationship("User")
+    user: Mapped[User | None] = relationship("User")
     conversation: Mapped[Conversation | None] = relationship("Conversation")
     message: Mapped[Message | None] = relationship("Message")
 

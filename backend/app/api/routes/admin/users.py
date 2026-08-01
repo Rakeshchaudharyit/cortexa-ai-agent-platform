@@ -10,6 +10,9 @@ from fastapi import APIRouter, Query, Request, Response
 
 from app.admin.schemas import (
     AdminRevokeSessionsResponse,
+    AdminUserDeleteRequest,
+    AdminUserDeleteResponse,
+    AdminUserDeletionImpact,
     AdminUserDetail,
     AdminUserListResponse,
     AdminUserUpdateRequest,
@@ -67,6 +70,16 @@ async def get_user(
     return await admin.get_user(session, user_id)
 
 
+@router.get("/users/{user_id}/deletion-impact", response_model=AdminUserDeletionImpact)
+async def get_user_deletion_impact(
+    user_id: uuid.UUID,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminUserDeletionImpact:
+    return await admin.get_user_deletion_impact(session, actor=admin_user, user_id=user_id)
+
+
 @router.patch("/users/{user_id}", response_model=AdminUserUpdateResponse)
 async def update_user(
     user_id: uuid.UUID,
@@ -83,6 +96,65 @@ async def update_user(
         user_id=user_id,
         role=body.role,
         status=body.status,
+        request_id=request_id_ctx.get(),
+        ip_address=ip,
+        user_agent=ua,
+    )
+
+
+@router.post("/users/{user_id}/deactivate", response_model=AdminUserUpdateResponse)
+async def deactivate_user(
+    user_id: uuid.UUID,
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminUserUpdateResponse:
+    ip, ua = _client_meta(request)
+    return await admin.deactivate_user(
+        session,
+        actor=admin_user,
+        user_id=user_id,
+        request_id=request_id_ctx.get(),
+        ip_address=ip,
+        user_agent=ua,
+    )
+
+
+@router.post("/users/{user_id}/activate", response_model=AdminUserUpdateResponse)
+async def activate_user(
+    user_id: uuid.UUID,
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminUserUpdateResponse:
+    ip, ua = _client_meta(request)
+    return await admin.activate_user(
+        session,
+        actor=admin_user,
+        user_id=user_id,
+        request_id=request_id_ctx.get(),
+        ip_address=ip,
+        user_agent=ua,
+    )
+
+
+@router.delete("/users/{user_id}", response_model=AdminUserDeleteResponse)
+async def delete_user(
+    user_id: uuid.UUID,
+    body: AdminUserDeleteRequest,
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminUserDeleteResponse:
+    ip, ua = _client_meta(request)
+    return await admin.delete_user(
+        session,
+        actor=admin_user,
+        user_id=user_id,
+        confirmation_email=body.confirmation_email,
         request_id=request_id_ctx.get(),
         ip_address=ip,
         user_agent=ua,
@@ -106,6 +178,7 @@ async def revoke_sessions(
         ip_address=ip,
         user_agent=ua,
     )
+
 
 @router.post("/session/acknowledge", status_code=204, response_class=Response)
 async def acknowledge_admin_session(

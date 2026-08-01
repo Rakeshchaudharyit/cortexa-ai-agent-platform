@@ -7,7 +7,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response
 
-from app.admin.schemas import AdminMemoryDetail, AdminMemoryListResponse
+from app.admin.schemas import (
+    AdminMemoryDeletionImpact,
+    AdminMemoryDetail,
+    AdminMemoryListResponse,
+)
 from app.api.deps import AdminServiceDep, CurrentAdminUser, DbSessionDep
 from app.core.logging import request_id_ctx
 from app.models.enums import MemoryCategory, MemorySource, MemoryStatus
@@ -46,6 +50,16 @@ async def get_memory(
     admin: AdminServiceDep,
 ) -> AdminMemoryDetail:
     return await admin.get_memory(session, memory_id)
+
+
+@router.get("/memories/{memory_id}/deletion-impact", response_model=AdminMemoryDeletionImpact)
+async def get_memory_deletion_impact(
+    memory_id: uuid.UUID,
+    _admin: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminMemoryDeletionImpact:
+    return await admin.get_memory_deletion_impact(session, memory_id)
 
 
 @router.post("/memories/{memory_id}/archive", response_model=AdminMemoryDetail)

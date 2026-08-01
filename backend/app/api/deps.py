@@ -185,6 +185,7 @@ def get_admin_service(request: Request) -> AdminService:
         tool_registry=getattr(request.app.state, "tool_registry", None),
         document_service=getattr(request.app.state, "document_service", None),
         memory_service=getattr(request.app.state, "memory_service", None),
+        conversation_service=getattr(request.app.state, "conversation_service", None),
         health_service=getattr(request.app.state, "health_service", None),
     )
     request.app.state.admin_service = created

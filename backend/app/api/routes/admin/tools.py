@@ -53,6 +53,24 @@ async def update_tool(
     )
 
 
+@router.delete("/tools/{tool_name}/configuration", response_model=AdminToolUpdateResponse)
+async def reset_tool_configuration(
+    tool_name: str,
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> AdminToolUpdateResponse:
+    return await admin.reset_tool_configuration(
+        session,
+        actor=admin_user,
+        tool_name=tool_name,
+        request_id=request_id_ctx.get(),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
 @router.get("/tool-executions", response_model=AdminToolExecutionListResponse)
 async def list_tool_executions(
     _admin: CurrentAdminUser,

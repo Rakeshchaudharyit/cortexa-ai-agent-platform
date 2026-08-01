@@ -575,7 +575,7 @@ class AdminRepository:
         status: ToolExecutionStatus | None = None,
         created_from: datetime | None = None,
         created_to: datetime | None = None,
-    ) -> tuple[list[tuple[ToolExecution, User]], int]:
+    ) -> tuple[list[tuple[ToolExecution, User | None]], int]:
         filters: list[Any] = []
         if user_id is not None:
             filters.append(ToolExecution.user_id == user_id)
@@ -595,7 +595,7 @@ class AdminRepository:
             (
                 await session.execute(
                     select(ToolExecution, User)
-                    .join(User, User.id == ToolExecution.user_id)
+                    .outerjoin(User, User.id == ToolExecution.user_id)
                     .where(*filters)
                     .order_by(ToolExecution.created_at.desc())
                     .offset(offset)
@@ -607,17 +607,59 @@ class AdminRepository:
 
     async def get_tool_execution(
         self, session: AsyncSession, execution_id: uuid.UUID
-    ) -> tuple[ToolExecution, User]:
+    ) -> tuple[ToolExecution, User | None]:
         row = (
             await session.execute(
                 select(ToolExecution, User)
-                .join(User, User.id == ToolExecution.user_id)
+                .outerjoin(User, User.id == ToolExecution.user_id)
                 .where(ToolExecution.id == execution_id)
             )
         ).one_or_none()
         if row is None:
             raise AdminNotFoundError("Tool execution not found")
         return row[0], row[1]
+
+    async def delete_tool_configuration(self, session: AsyncSession, tool_name: str) -> bool:
+        row = await self.get_tool_configuration(session, tool_name)
+        if row is None:
+            return False
+        await session.delete(row)
+        await session.flush()
+        return True
+
+    async def delete_platform_setting(self, session: AsyncSession, key: str) -> bool:
+        row = await session.scalar(select(PlatformSetting).where(PlatformSetting.key == key))
+        if row is None:
+            return False
+        await session.delete(row)
+        await session.flush()
+        return True
+
+    async def conversation_citation_count(
+        self, session: AsyncSession, conversation_id: uuid.UUID
+    ) -> int:
+        from app.models.conversation import MessageCitation
+
+        return int(
+            await session.scalar(
+                select(func.count())
+                .select_from(MessageCitation)
+                .where(MessageCitation.conversation_id == conversation_id)
+            )
+            or 0
+        )
+
+    async def conversation_linked_memory_count(
+        self, session: AsyncSession, conversation_id: uuid.UUID
+    ) -> int:
+        return int(
+            await session.scalar(
+                select(func.count())
+                .select_from(UserMemory)
+                .where(UserMemory.source_conversation_id == conversation_id)
+            )
+            or 0
+        )
 
     # ── Settings / audit ───────────────────────────────────────────────────
 

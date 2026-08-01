@@ -159,6 +159,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_registry=tool_registry,
         document_service=document_service,
         memory_service=memory_service,
+        conversation_service=conversation_service,
         health_service=health_service,
     )
 

@@ -45,3 +45,12 @@ class LastAdminProtectionError(AppError):
             message=message,
             status_code=status.HTTP_409_CONFLICT,
         )
+
+
+class SelfDeletionError(AppError):
+    def __init__(self, message: str = "Cannot delete your own account") -> None:
+        super().__init__(
+            code="self_deletion_forbidden",
+            message=message,
+            status_code=status.HTTP_409_CONFLICT,
+        )

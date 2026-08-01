@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.admin.service import AdminService
 from app.agents.orchestrator import AgentOrchestrator
 from app.conversations.context import ConversationContextBuilder
 from app.core.config import Settings, get_settings
@@ -147,6 +148,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         memory_retriever=memory_retriever,
         memory_extractor=memory_extractor,
     )
+    health_service = HealthService(
+        settings=settings,
+        engine=engine,
+        redis=redis,
+    )
+    admin_service = AdminService(
+        settings=settings,
+        auth_service=auth_service,
+        tool_registry=tool_registry,
+        document_service=document_service,
+        memory_service=memory_service,
+        health_service=health_service,
+    )
+
+    # Apply persisted tool configuration overrides when the database is reachable.
+    try:
+        from app.db.session import get_session_factory
+
+        factory = get_session_factory()
+        async with factory() as session:
+            await admin_service.refresh_tool_overrides(session)
+    except Exception:  # noqa: BLE001
+        logger.warning("admin_tool_overrides_load_failed")
 
     app.state.settings = settings
     app.state.engine = engine
@@ -175,11 +199,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.memory_extractor = memory_extractor
     app.state.agent_orchestrator = agent_orchestrator
     app.state.chat_service = chat_service
-    app.state.health_service = HealthService(
-        settings=settings,
-        engine=engine,
-        redis=redis,
-    )
+    app.state.health_service = health_service
+    app.state.admin_service = admin_service
 
     try:
         yield

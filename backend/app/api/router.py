@@ -16,6 +16,7 @@ from app.api.routes import (
     system,
     tools,
 )
+from app.api.routes.admin import build_admin_router
 from app.core.config import Settings
 
 
@@ -32,6 +33,7 @@ def build_api_router(settings: Settings) -> APIRouter:
     api.include_router(conversations.usage_router)
     api.include_router(tools.router)
     api.include_router(memories.router)
+    api.include_router(build_admin_router())
     return api
 
 

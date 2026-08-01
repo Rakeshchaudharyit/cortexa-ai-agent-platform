@@ -6,7 +6,7 @@ from enum import StrEnum
 
 
 class UserRole(StrEnum):
-    """Role foundation — admin capabilities arrive in a later phase."""
+    """Application roles — admin unlocks the enterprise administration portal."""
 
     user = "user"
     admin = "admin"

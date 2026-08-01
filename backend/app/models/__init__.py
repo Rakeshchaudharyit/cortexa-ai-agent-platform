@@ -1,5 +1,6 @@
 """ORM models."""
 
+from app.models.admin import AdminAuditEvent, PlatformSetting, ToolConfiguration
 from app.models.application_metadata import ApplicationMetadata
 from app.models.conversation import (
     DEFAULT_CONVERSATION_TITLE,
@@ -30,6 +31,7 @@ from app.models.user import User
 
 __all__ = [
     "DEFAULT_CONVERSATION_TITLE",
+    "AdminAuditEvent",
     "ApplicationMetadata",
     "Conversation",
     "ConversationStatus",
@@ -47,7 +49,9 @@ __all__ = [
     "MessageRole",
     "MessageStatus",
     "PasswordResetToken",
+    "PlatformSetting",
     "RefreshSession",
+    "ToolConfiguration",
     "ToolExecution",
     "ToolExecutionStatus",
     "User",

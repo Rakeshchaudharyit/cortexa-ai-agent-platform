@@ -9,14 +9,21 @@ from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
 from app.models import (  # noqa: F401
+    AdminAuditEvent,
     Conversation,
     Document,
     DocumentChunk,
+    MemoryAuditEvent,
     Message,
     MessageCitation,
     PasswordResetToken,
+    PlatformSetting,
     RefreshSession,
+    ToolConfiguration,
+    ToolExecution,
     User,
+    UserMemory,
+    UserMemorySettings,
 )
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection

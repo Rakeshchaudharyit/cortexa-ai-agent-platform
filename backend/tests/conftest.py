@@ -326,6 +326,9 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 _CLEANUP_STATEMENTS = (
+    "DELETE FROM admin_audit_events",
+    "DELETE FROM tool_configurations",
+    "DELETE FROM platform_settings",
     "DELETE FROM memory_audit_events",
     "DELETE FROM user_memories",
     "DELETE FROM user_memory_settings",

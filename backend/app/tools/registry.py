@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from app.models.enums import UserRole
 from app.tools.base import BaseTool
@@ -11,6 +12,15 @@ from app.tools.exceptions import ToolNotFoundError, ToolRegistryError
 from app.tools.schemas import ToolSpec
 
 _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
+
+
+@dataclass(frozen=True)
+class ToolRuntimeOverride:
+    """Admin/runtime override for a registered tool (does not mutate ClassVars)."""
+
+    enabled: bool | None = None
+    timeout_seconds: int | None = None
+    confirmation_required: bool | None = None
 
 
 class ToolRegistry:
@@ -22,6 +32,7 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, BaseTool] = {}
+        self._overrides: dict[str, ToolRuntimeOverride] = {}
 
     def register(self, tool: BaseTool) -> None:
         name = tool.name
@@ -35,9 +46,39 @@ class ToolRegistry:
 
     def unregister(self, name: str) -> None:
         self._tools.pop(name, None)
+        self._overrides.pop(name, None)
 
     def clear(self) -> None:
         self._tools.clear()
+        self._overrides.clear()
+
+    def apply_overrides(self, overrides: dict[str, ToolRuntimeOverride]) -> None:
+        """Replace runtime overrides (typically loaded from ToolConfiguration rows)."""
+        self._overrides = dict(overrides)
+
+    def clear_overrides(self) -> None:
+        self._overrides.clear()
+
+    def get_override(self, name: str) -> ToolRuntimeOverride | None:
+        return self._overrides.get(name)
+
+    def is_effectively_enabled(self, tool: BaseTool) -> bool:
+        override = self._overrides.get(tool.name)
+        if override is not None and override.enabled is not None:
+            return override.enabled
+        return bool(tool.enabled)
+
+    def effective_timeout(self, tool: BaseTool) -> int:
+        override = self._overrides.get(tool.name)
+        if override is not None and override.timeout_seconds is not None:
+            return int(override.timeout_seconds)
+        return int(tool.timeout_seconds)
+
+    def effective_confirmation_required(self, tool: BaseTool) -> bool:
+        override = self._overrides.get(tool.name)
+        if override is not None and override.confirmation_required is not None:
+            return bool(override.confirmation_required)
+        return bool(tool.requires_confirmation)
 
     def get(self, name: str) -> BaseTool:
         tool = self._tools.get(name)
@@ -54,7 +95,7 @@ class ToolRegistry:
     def list_enabled(self, *, role: UserRole | None = None) -> list[BaseTool]:
         tools: list[BaseTool] = []
         for tool in self.list_all():
-            if not tool.enabled:
+            if not self.is_effectively_enabled(tool):
                 continue
             if role is not None and not tool.is_allowed_for_role(role):
                 continue

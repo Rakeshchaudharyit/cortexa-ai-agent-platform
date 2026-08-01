@@ -157,7 +157,7 @@ class ToolExecutor:
                 )
             raise
 
-        if not tool.enabled:
+        if not self.registry.is_effectively_enabled(tool):
             return await self._deny(
                 session,
                 tool=tool,
@@ -187,7 +187,7 @@ class ToolExecutor:
                 error=ToolPermissionDeniedError(tool_name),
             )
 
-        if tool.requires_confirmation and not confirmed:
+        if self.registry.effective_confirmation_required(tool) and not confirmed:
             return await self._deny(
                 session,
                 tool=tool,
@@ -263,7 +263,10 @@ class ToolExecutor:
             extras={"memory_service": self.memory_service} if self.memory_service else {},
         )
 
-        timeout = min(tool.timeout_seconds, self.settings.agent_tool_timeout_seconds)
+        timeout = min(
+            self.registry.effective_timeout(tool),
+            self.settings.agent_tool_timeout_seconds,
+        )
         try:
             result = await asyncio.wait_for(
                 tool.execute(validated, context),

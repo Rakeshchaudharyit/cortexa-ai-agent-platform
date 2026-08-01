@@ -10,6 +10,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.admin.service import AdminService
 from app.core.auth_exceptions import InvalidAccessTokenError
 from app.core.config import Settings
 from app.db.session import get_db_session
@@ -150,7 +151,7 @@ async def get_current_active_user(
 
 
 def require_role(*roles: UserRole) -> Callable[..., Any]:
-    """Foundational role gate — admin UI is not implemented in Phase 3."""
+    """Role gate for admin and future privileged endpoints."""
 
     allowed = frozenset(roles)
 
@@ -170,7 +171,28 @@ def require_role(*roles: UserRole) -> Callable[..., Any]:
     return _dependency
 
 
+require_admin = require_role(UserRole.admin)
+
+
+def get_admin_service(request: Request) -> AdminService:
+    service = getattr(request.app.state, "admin_service", None)
+    if isinstance(service, AdminService):
+        return service
+    settings = get_settings_dep(request)
+    created = AdminService(
+        settings=settings,
+        auth_service=get_auth_service(request),
+        tool_registry=getattr(request.app.state, "tool_registry", None),
+        document_service=getattr(request.app.state, "document_service", None),
+        memory_service=getattr(request.app.state, "memory_service", None),
+        health_service=getattr(request.app.state, "health_service", None),
+    )
+    request.app.state.admin_service = created
+    return created
+
+
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
+CurrentAdminUser = Annotated[User, Depends(require_admin)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 PasswordResetServiceDep = Annotated[PasswordResetService, Depends(get_password_reset_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
@@ -184,3 +206,4 @@ ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 ToolServiceDep = Annotated[ToolService, Depends(get_tool_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
+AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]

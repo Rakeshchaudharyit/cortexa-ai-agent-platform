@@ -4,7 +4,7 @@ Production-oriented, local-first AI Agent Platform designed as a flagship portfo
 
 Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
 
-> **Current status:** Phase 7 — Long-term memory and personalization
+> **Current status:** Phase 8 complete — Enterprise Administration Portal
 >
 > FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication,
 > document RAG, multi-turn chat, built-in agent tools, and user-controlled long-term memory
@@ -58,7 +58,7 @@ Phase 4 added private document upload, local embeddings, pgvector retrieval, and
 | Organization / tenant management | Not implemented |
 | Social login / production password-reset email | Not implemented (dev reset CLI + in-app reset exist) |
 | External SaaS tools / voice | Not implemented |
-| Analytics / admin modules | Not implemented |
+| Analytics / admin modules | Phase 8 admin portal (`/admin`, `/api/v1/admin/*`) — see [docs/ENTERPRISE_ADMIN_PORTAL.md](docs/ENTERPRISE_ADMIN_PORTAL.md) |
 | Automatic model downloads | Intentionally disabled |
 
 ---

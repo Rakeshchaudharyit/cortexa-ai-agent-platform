@@ -1,12 +1,13 @@
-# Cortexa Frontend — Phase 7
+# Cortexa Frontend — Phase 8
 
-See the repository root [README.md](../README.md), [docs/LONG_TERM_MEMORY.md](../docs/LONG_TERM_MEMORY.md),
+See the repository root [README.md](../README.md), [docs/ENTERPRISE_ADMIN_PORTAL.md](../docs/ENTERPRISE_ADMIN_PORTAL.md),
+[docs/LONG_TERM_MEMORY.md](../docs/LONG_TERM_MEMORY.md),
 [docs/AGENT_TOOLS.md](../docs/AGENT_TOOLS.md), [docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md),
 and [docs/RAG.md](../docs/RAG.md) for setup.
 
 ## Surfaces
 
-- Platform overview (Phase 7 milestone, capability cards, quick actions)
+- Platform overview (capability cards, quick actions)
 - System status (API, database, Redis, LLM, RAG/embeddings, agent tools, memory flag)
 - Auth (`/login`, `/register`, header session controls)
 - Authenticated **Documents & grounded Q&A** panel on the home page
@@ -14,6 +15,9 @@ and [docs/RAG.md](../docs/RAG.md) for setup.
   streaming composer, citations, live tool activity, memory indicators
 - **Tool history** (`/tools`) — owned agent tool execution audit trail
 - **Memories** (`/memories`) — review, confirm, archive, delete, and configure long-term memory
+- **Admin portal** (`/admin/*`) — admin-only SaaS console (users, documents, conversations,
+  memories, tools, analytics, audit, system health, settings). Hidden from normal users;
+  see [ENTERPRISE_ADMIN_PORTAL.md](../docs/ENTERPRISE_ADMIN_PORTAL.md).
 
 ## API fetching decision
 

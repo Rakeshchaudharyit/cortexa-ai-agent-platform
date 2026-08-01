@@ -306,16 +306,20 @@ Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
 
 ---
 
-## Current Limitations (Phase 7)
+## Current Limitations (Phase 8)
 
+- Billing, Stripe, OAuth, Gmail/Calendar, Slack/Teams are not implemented
+- Background agents, scheduled workflows, and voice are not implemented
+- Organization multi-tenancy is not implemented
+- Admin portal exists at `/admin` for users with the `admin` role (see `docs/ENTERPRISE_ADMIN_PORTAL.md`)
+- Create admins via `python -m app.cli.create_user --role admin` (development CLI; production gated)
 - Long-term memory is user-controlled; automatic extraction stays off by default
 - Native Ollama tool calling depends on the installed model — do not assume it works without verification
-- No external SaaS tools, web browsing, shell, MCP, or voice
 - Document ingest remains synchronous (request-scoped); no background workers
 - PDF text extraction only (no OCR); encrypted PDFs rejected
 - Models must be pulled manually (`qwen2.5:7b`, `nomic-embed-text`)
 - Deleted conversations are not restorable; token fields may be null from the provider
-- Home page is the Phase 7 platform overview (capabilities, quick actions, system status) plus documents; `/chat` is the conversation product surface; `/tools` shows owned tool execution history; `/memories` manages long-term memory
+- Home page is the platform overview; `/chat` is the conversation product; `/admin` is admin-only
 
 ---
 

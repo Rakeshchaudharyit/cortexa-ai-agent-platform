@@ -63,3 +63,76 @@ export type AdminDashboardResponse = {
   system_status: AdminSystemStatusSummary;
   generated_at: string;
 };
+
+export type AdminUserSummary = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: "user" | "admin";
+  status: "active" | "disabled";
+  is_email_verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  conversations_count: number;
+  documents_count: number;
+  memories_count: number;
+};
+
+export type AdminUserDetail = AdminUserSummary & {
+  active_sessions_count: number;
+  tool_executions_count: number;
+  tool_success_count: number;
+  tool_failure_count: number;
+};
+
+export type AdminPaginated<T> = {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminDocumentSummary = {
+  id: string;
+  filename: string;
+  owner_id: string;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  media_type?: string | null;
+  status: string;
+  size_bytes?: number | null;
+  chunk_count: number;
+  created_at: string;
+  processed_at?: string | null;
+  processing_duration_ms?: number | null;
+  error_code?: string | null;
+};
+
+export type AdminConversationSummary = {
+  id: string;
+  title: string;
+  owner_id: string;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  status: string;
+  message_count: number;
+  last_activity_at?: string | null;
+  grounded_mode?: boolean | null;
+  memory_enabled?: boolean | null;
+  tool_execution_count: number;
+  created_at: string;
+};
+
+export type AdminMemorySummary = {
+  id: string;
+  title: string;
+  owner_id: string;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  category: string;
+  status: string;
+  source: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+};

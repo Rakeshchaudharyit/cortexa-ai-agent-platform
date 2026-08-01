@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from app.models.enums import UserRole
+from app.models.enums import UserRole, UserStatus
 from app.models.user import User
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,3 +71,58 @@ async def test_admin_dashboard_admin_ok(
     assert "usage_trend" in body
     assert "password" not in str(body).lower()
     assert "jwt" not in str(body).lower()
+
+
+@pytest.mark.asyncio
+async def test_disabled_admin_denied(
+    chat_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    payload = await _register(chat_client, f"disadmin-{uuid.uuid4().hex[:8]}@example.com")
+    user_id = uuid.UUID(payload["user"]["id"])
+    user = await db_session.get(User, user_id)
+    assert user is not None
+    user.role = UserRole.admin
+    user.status = UserStatus.disabled
+    await db_session.commit()
+    response = await chat_client.get(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+    )
+    assert response.status_code in {401, 403}
+
+
+@pytest.mark.asyncio
+async def test_admin_users_list_and_no_password_hash(
+    chat_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    payload = await _register(chat_client, f"admin2-{uuid.uuid4().hex[:8]}@example.com")
+    await _promote_admin(db_session, uuid.UUID(payload["user"]["id"]))
+    response = await chat_client.get(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    blob = str(body).lower()
+    assert "password_hash" not in blob
+    assert "password" not in blob
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_remove_last_admin(
+    chat_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    payload = await _register(chat_client, f"lastadmin-{uuid.uuid4().hex[:8]}@example.com")
+    user_id = uuid.UUID(payload["user"]["id"])
+    await _promote_admin(db_session, user_id)
+    response = await chat_client.patch(
+        f"/api/v1/admin/users/{user_id}",
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+        json={"role": "user"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "last_admin_protected"

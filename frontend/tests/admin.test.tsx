@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
@@ -41,13 +42,15 @@ vi.mock("@/components/AuthProvider", () => ({
 
 vi.mock("@/services/admin", () => ({
   fetchAdminDashboard: vi.fn(),
+  fetchAdminUsers: vi.fn(),
 }));
 
 import { useAuth } from "@/components/AuthProvider";
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { AuthHeader } from "@/components/AuthHeader";
 import AdminDashboardPage from "@/app/admin/page";
-import { fetchAdminDashboard } from "@/services/admin";
+import AdminUsersPage from "@/app/admin/users/page";
+import { fetchAdminDashboard, fetchAdminUsers } from "@/services/admin";
 
 const mockedAuth = vi.mocked(useAuth);
 
@@ -185,5 +188,38 @@ describe("admin portal", () => {
     await waitFor(() => expect(screen.getByTestId("admin-dashboard")).toBeInTheDocument());
     expect(screen.getAllByTestId("admin-metric-card").length).toBeGreaterThan(0);
     expect(screen.queryByText(/password_hash/i)).not.toBeInTheDocument();
+  });
+
+  it("renders user table with search and role filter", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAdminUsers).mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        items: [
+          {
+            id: "1",
+            email: "a@example.com",
+            full_name: "Ada",
+            role: "admin",
+            status: "active",
+            is_email_verified: true,
+            created_at: new Date().toISOString(),
+            last_login_at: null,
+            conversations_count: 1,
+            documents_count: 0,
+            memories_count: 0,
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    } as never);
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByTestId("admin-users-page")).toBeInTheDocument());
+    await user.type(screen.getByTestId("admin-users-search"), "ada");
+    await user.selectOptions(screen.getByTestId("admin-users-role-filter"), "admin");
+    expect(fetchAdminUsers).toHaveBeenCalled();
   });
 });

@@ -318,6 +318,90 @@ class DocumentService:
             return error.code, error.message[:512]
         return "document_processing_failed", "Document processing failed"
 
+    async def reprocess_document(self, session: AsyncSession, document: Document) -> Document:
+        """Admin reprocess: reload bytes from storage and rebuild chunks/embeddings."""
+        request_id = request_id_ctx.get() or "-"
+        try:
+            data = await self.storage.get_bytes(key=document.storage_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "document_reprocess_storage_failed document_id=%s request_id=%s",
+                document.id,
+                request_id,
+            )
+            raise DocumentProcessingError() from exc
+
+        await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document.id))
+        document.status = DocumentStatus.processing
+        document.error_code = None
+        document.error_message = None
+        document.chunk_count = 0
+        document.character_count = 0
+        document.processed_at = None
+        await session.flush()
+
+        try:
+            extraction = self.extraction_service.extract(
+                data=data,
+                media_type=document.media_type,
+                filename=document.original_filename,
+            )
+            text_chunks = self.chunking_service.chunk(
+                extraction,
+                document_id=str(document.id),
+                source_filename=document.original_filename,
+            )
+            batch_size = self.settings.embedding_batch_size
+            embeddings: list[list[float]] = []
+            for start in range(0, len(text_chunks), batch_size):
+                batch = text_chunks[start : start + batch_size]
+                vectors = await self.embedding_provider.embed_batch(
+                    [chunk.content for chunk in batch]
+                )
+                if len(vectors) != len(batch):
+                    raise DocumentProcessingError("Embedding batch length mismatch")
+                embeddings.extend(vectors)
+
+            for chunk, vector in zip(text_chunks, embeddings, strict=True):
+                content_sha = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()
+                session.add(
+                    DocumentChunk(
+                        document_id=document.id,
+                        user_id=document.user_id,
+                        chunk_index=chunk.index,
+                        content=chunk.content,
+                        content_sha256=content_sha,
+                        character_count=chunk.character_count,
+                        embedding=vector,
+                        chunk_metadata=dict(chunk.metadata),
+                    )
+                )
+
+            document.status = DocumentStatus.ready
+            document.chunk_count = len(text_chunks)
+            document.character_count = extraction.character_count
+            document.processed_at = datetime.now(UTC)
+            await session.flush()
+            logger.info(
+                "document_reprocess_complete document_id=%s chunk_count=%s request_id=%s",
+                document.id,
+                document.chunk_count,
+                request_id,
+            )
+            return document
+        except Exception as exc:
+            code, message = self._safe_error_fields(exc)
+            document.status = DocumentStatus.failed
+            document.error_code = code
+            document.error_message = message
+            document.chunk_count = 0
+            document.character_count = 0
+            document.processed_at = None
+            await session.flush()
+            if isinstance(exc, AppError):
+                raise
+            raise DocumentProcessingError() from exc
+
     async def _safe_delete_storage(self, key: str) -> None:
         try:
             await self.storage.delete(key=key)

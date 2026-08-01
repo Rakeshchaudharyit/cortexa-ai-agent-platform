@@ -5,10 +5,15 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.routes.admin import (
+    analytics,
+    audit,
     conversations,
     dashboard,
     documents,
     memories,
+    settings,
+    system,
+    tools,
     users,
 )
 
@@ -20,4 +25,9 @@ def build_admin_router() -> APIRouter:
     router.include_router(documents.router)
     router.include_router(conversations.router)
     router.include_router(memories.router)
+    router.include_router(tools.router)
+    router.include_router(analytics.router)
+    router.include_router(audit.router)
+    router.include_router(system.router)
+    router.include_router(settings.router)
     return router

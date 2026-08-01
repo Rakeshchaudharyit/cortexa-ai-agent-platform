@@ -136,3 +136,89 @@ export type AdminMemorySummary = {
   last_used_at?: string | null;
   use_count: number;
 };
+
+export type AdminToolSummary = {
+  name: string;
+  category: string;
+  version: string;
+  description: string;
+  enabled: boolean;
+  registry_enabled: boolean;
+  required_roles: string[];
+  timeout_seconds: number;
+  confirmation_required: boolean;
+  execution_count: number;
+  success_rate: number | null;
+  average_duration_ms: number | null;
+  has_configuration: boolean;
+};
+
+export type AdminToolExecutionSummary = {
+  id: string;
+  tool_name: string;
+  user_id: string;
+  user_email?: string | null;
+  conversation_id?: string | null;
+  status: string;
+  started_at: string;
+  duration_ms?: number | null;
+  error_code?: string | null;
+  created_at: string;
+};
+
+export type AdminAnalyticsResponse = {
+  range_days: 7 | 30 | 90;
+  points: Array<{
+    date: string;
+    daily_active_users: number;
+    new_users: number;
+    conversations: number;
+    messages: number;
+    document_uploads: number;
+    tool_executions: number;
+    tool_succeeded: number;
+    tool_failed: number;
+  }>;
+  totals: Record<string, number | null>;
+  unavailable: string[];
+  generated_at: string;
+};
+
+export type AdminAuditEventSummary = {
+  id: string;
+  actor_user_id?: string | null;
+  actor_email?: string | null;
+  action: string;
+  target_type: string;
+  target_id?: string | null;
+  safe_summary: string;
+  created_at: string;
+};
+
+export type AdminSystemHealthResponse = {
+  overall: "ok" | "degraded" | "unavailable";
+  components: Array<{
+    name: string;
+    status: "ok" | "degraded" | "unavailable" | "unknown";
+    message?: string | null;
+    detail?: string | null;
+  }>;
+  ai_configuration: Record<string, unknown>;
+  application: Record<string, unknown>;
+  refreshed_at: string;
+  guidance: string[];
+};
+
+export type AdminSettingItem = {
+  key: string;
+  value: unknown;
+  source: "default" | "override" | "runtime";
+  editable: boolean;
+  description?: string | null;
+};
+
+export type AdminSettingsResponse = {
+  settings: AdminSettingItem[];
+  runtime: Record<string, unknown>;
+  unsafe_keys_blocked: string[];
+};

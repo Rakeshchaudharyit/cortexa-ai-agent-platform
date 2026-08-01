@@ -5,11 +5,9 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.api.deps import CurrentActiveUser, DbSessionDep, ToolServiceDep, require_role
-from app.models.enums import UserRole
-from app.models.user import User
+from app.api.deps import CurrentActiveUser, DbSessionDep, ToolServiceDep
 from app.tools.schemas import (
     ToolExecutionDetail,
     ToolExecutionListResponse,
@@ -65,16 +63,3 @@ async def get_tool_execution(
     tools: ToolServiceDep,
 ) -> ToolExecutionDetail:
     return await tools.get_execution(session, user, execution_id)
-
-
-@router.get(
-    "/admin/tools",
-    response_model=ToolListResponse,
-    summary="Admin: list all registered tools including disabled",
-    dependencies=[Depends(require_role(UserRole.admin))],
-)
-async def admin_list_tools(
-    user: Annotated[User, Depends(require_role(UserRole.admin))],
-    tools: ToolServiceDep,
-) -> ToolListResponse:
-    return tools.list_all_tools_admin(user)

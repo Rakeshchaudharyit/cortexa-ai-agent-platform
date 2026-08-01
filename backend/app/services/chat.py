@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -15,6 +16,17 @@ from sqlalchemy.orm import selectinload
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.agents.schemas import AgentRunConfig
+from app.agents.tool_selection import (
+    ToolSelectionContext,
+    ToolSelectionResult,
+    resolve_conversation_mode,
+    select_tools_for_turn,
+)
+from app.conversations.citations import (
+    dedupe_retrieved_chunks,
+    normalize_grounded_answer,
+    rag_citation_to_response,
+)
 from app.conversations.context import ConversationContextBuilder
 from app.conversations.exceptions import (
     DuplicateClientRequestError,
@@ -46,7 +58,7 @@ from app.memory.retrieval import MemoryRetriever
 from app.memory.service import MemoryService
 from app.models.conversation import DEFAULT_CONVERSATION_TITLE, Conversation, Message
 from app.models.document import Document
-from app.models.enums import ConversationStatus, MessageRole, MessageStatus
+from app.models.enums import ConversationStatus, DocumentStatus, MessageRole, MessageStatus
 from app.models.user import User
 from app.services.conversations import (
     ConversationService,
@@ -60,7 +72,8 @@ from app.services.retrieval import RetrievalService, RetrievedChunk
 logger = logging.getLogger("cortexa.chat")
 
 _NO_CONTEXT_ANSWER = (
-    "I could not find enough information in your uploaded documents to answer that question."
+    "I couldn’t find that information in the selected documents. "
+    "Try choosing different documents or switch to General Agent mode."
 )
 
 TitleGenerator = Callable[[str, str], Awaitable[str]]
@@ -102,6 +115,79 @@ class ChatService:
     @property
     def tools_enabled(self) -> bool:
         return bool(self.settings.agent_tools_enabled and self.agent_orchestrator is not None)
+
+    async def _select_tools_for_turn(
+        self,
+        *,
+        session: AsyncSession,
+        user: User,
+        user_content: str,
+        document_ids: list[uuid.UUID] | None,
+        memory_enabled: bool,
+        has_accessible_documents: bool | None = None,
+    ) -> ToolSelectionResult:
+        """Deterministic tool allow-list for this turn (never client-controlled)."""
+        if not self.tools_enabled or self.agent_orchestrator is None:
+            return ToolSelectionResult(selected_tool_names=[], reason_codes=["tools_disabled"])
+
+        mode = resolve_conversation_mode(document_ids)
+        if has_accessible_documents is None:
+            if mode == "general":
+                has_docs = False
+            elif document_ids:
+                has_docs = True
+            else:
+                count = int(
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(Document)
+                        .where(
+                            Document.user_id == user.id,
+                            Document.status == DocumentStatus.ready,
+                        )
+                    )
+                    or 0
+                )
+                has_docs = count > 0
+        else:
+            has_docs = has_accessible_documents
+
+        registered = frozenset(
+            tool.name for tool in self.agent_orchestrator.tool_registry.list_enabled(role=user.role)
+        )
+        global_memory = bool(self.settings.memory_enabled)
+        return select_tools_for_turn(
+            ToolSelectionContext(
+                user_message=user_content,
+                conversation_mode=mode,
+                document_ids=document_ids,
+                has_accessible_documents=has_docs,
+                memory_globally_enabled=global_memory,
+                conversation_memory_enabled=memory_enabled,
+                registered_tool_names=registered,
+            )
+        )
+
+    def _agent_run_config(
+        self,
+        *,
+        selection: ToolSelectionResult,
+        temperature: float | None,
+        max_tokens: int | None,
+        conversation_mode: str,
+        memory_context_count: int,
+        rag_context_count: int,
+    ) -> AgentRunConfig:
+        return AgentRunConfig(
+            max_iterations=self.settings.agent_max_tool_iterations,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            selected_tool_names=list(selection.selected_tool_names),
+            selection_reason_codes=list(selection.reason_codes),
+            conversation_mode=conversation_mode,
+            memory_context_count=memory_context_count,
+            rag_context_count=rag_context_count,
+        )
 
     async def send_message(
         self,
@@ -561,7 +647,7 @@ class ChatService:
     def _build_citations(self, retrieved: list[RetrievedChunk]) -> list[RagCitation]:
         excerpt_limit = self.settings.citation_excerpt_max_characters
         citations: list[RagCitation] = []
-        for index, item in enumerate(retrieved, start=1):
+        for index, item in enumerate(dedupe_retrieved_chunks(retrieved), start=1):
             metadata = item.chunk.chunk_metadata or {}
             page_number = metadata.get("page_number")
             page_value = page_number if isinstance(page_number, int) else None
@@ -581,6 +667,23 @@ class ChatService:
                 )
             )
         return citations
+
+    def _citation_sse_payloads(self, citations: list[RagCitation]) -> list[dict[str, Any]]:
+        """Serialize citations for SSE using the same schema as persisted messages."""
+        return [
+            rag_citation_to_response(citation, index=index).model_dump(mode="json")
+            for index, citation in enumerate(citations, start=1)
+        ]
+
+    @staticmethod
+    def _progress_event(
+        phase: str,
+        message: str,
+        **extra: Any,
+    ) -> StreamEvent:
+        data: dict[str, Any] = {"phase": phase, "message": message}
+        data.update(extra)
+        return StreamEvent(event=StreamEventType.progress, data=data)
 
     async def _generate_into_assistant(
         self,
@@ -612,6 +715,7 @@ class ChatService:
             document_ids=document_ids,
             top_k=top_k,
         )
+        retrieved = dedupe_retrieved_chunks(retrieved)
         logger.info(
             "retrieval_count user_id=%s conversation_id=%s retrieval_count=%s "
             "general_mode=%s request_id=%s",
@@ -718,6 +822,24 @@ class ChatService:
 
         if self.tools_enabled:
             assert self.agent_orchestrator is not None
+            selection = await self._select_tools_for_turn(
+                session=session,
+                user=user,
+                user_content=user_message.content,
+                document_ids=document_ids,
+                memory_enabled=memory_turn.memory_enabled,
+                has_accessible_documents=None,
+            )
+            if retrieved and "knowledge_search" in selection.selected_tool_names:
+                selection = ToolSelectionResult(
+                    selected_tool_names=[
+                        name for name in selection.selected_tool_names if name != "knowledge_search"
+                    ],
+                    reason_codes=[
+                        *selection.reason_codes,
+                        "knowledge_search_skipped_rag_preloaded",
+                    ],
+                )
             try:
                 agent_result = await self.agent_orchestrator.run(
                     session=session,
@@ -727,10 +849,13 @@ class ChatService:
                     conversation_id=conversation.id,
                     message_id=assistant.id,
                     allowed_document_ids=document_ids,
-                    config=AgentRunConfig(
-                        max_iterations=self.settings.agent_max_tool_iterations,
+                    config=self._agent_run_config(
+                        selection=selection,
                         temperature=generate_request.temperature,
                         max_tokens=generate_request.max_tokens,
+                        conversation_mode=resolve_conversation_mode(document_ids),
+                        memory_context_count=len(memory_turn.retrieved),
+                        rag_context_count=len(retrieved),
                     ),
                 )
             except AppError as exc:
@@ -750,10 +875,13 @@ class ChatService:
                 **(assistant.message_metadata or {}),
                 **meta,
             }
+            answer_content = agent_result.content
+            if not general_mode and citations:
+                answer_content = normalize_grounded_answer(answer_content)
             finalized = await self.message_service.finalize_assistant(
                 session,
                 assistant,
-                content=agent_result.content,
+                content=answer_content,
                 grounded=True if citations else (None if general_mode else False),
                 model=agent_result.model or self.llm_service.provider.default_model,
                 provider=agent_result.provider or self.llm_service.provider.name,
@@ -809,10 +937,13 @@ class ChatService:
 
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
         usage = generation.usage
+        answer_content = generation.content
+        if not general_mode and citations:
+            answer_content = normalize_grounded_answer(answer_content)
         finalized = await self.message_service.finalize_assistant(
             session,
             assistant,
-            content=generation.content,
+            content=answer_content,
             grounded=True if citations else (None if general_mode else False),
             model=generation.model,
             provider=generation.provider,
@@ -861,6 +992,18 @@ class ChatService:
     ) -> AsyncIterator[StreamEvent]:
         request_id = request_id_ctx.get() or "-"
         started = time.perf_counter()
+        timing: dict[str, Any] = {
+            "embedding_ms": None,
+            "retrieval_ms": None,
+            "context_build_ms": None,
+            "model_time_to_first_token_ms": None,
+            "model_total_ms": None,
+            "citation_build_ms": None,
+            "total_request_ms": None,
+            "retrieved_chunk_count": 0,
+            "citation_count": 0,
+            "provider_streaming": None,
+        }
         logger.info(
             "stream_started user_id=%s conversation_id=%s message_id=%s request_id=%s",
             user.id,
@@ -868,8 +1011,21 @@ class ChatService:
             assistant.id,
             request_id,
         )
+        yield self._progress_event(
+            "preparing",
+            "Preparing your question…",
+        )
 
         try:
+            if document_ids is not None and len(document_ids) == 0:
+                # General mode — skip retrieval progress.
+                pass
+            else:
+                yield self._progress_event(
+                    "retrieving",
+                    "Searching selected documents…",
+                )
+            retrieval_started = time.perf_counter()
             retrieved, general_mode, retrieval_attempted = await self._resolve_retrieval(
                 session,
                 user,
@@ -877,6 +1033,7 @@ class ChatService:
                 document_ids=document_ids,
                 top_k=top_k,
             )
+            timing["retrieval_ms"] = round((time.perf_counter() - retrieval_started) * 1000, 2)
         except AppError as exc:
             await self.message_service.fail_assistant(
                 session,
@@ -890,13 +1047,31 @@ class ChatService:
             )
             return
 
+        retrieved = dedupe_retrieved_chunks(retrieved)
+        timing["retrieved_chunk_count"] = len(retrieved)
         logger.info(
-            "retrieval_count user_id=%s conversation_id=%s retrieval_count=%s request_id=%s",
+            "retrieval_count user_id=%s conversation_id=%s retrieval_count=%s "
+            "retrieval_ms=%s request_id=%s",
             user.id,
             conversation.id,
             len(retrieved),
+            timing["retrieval_ms"],
             request_id,
         )
+        if retrieval_attempted:
+            if retrieved:
+                yield self._progress_event(
+                    "retrieval_complete",
+                    f"Found {len(retrieved)} relevant "
+                    f"{'passage' if len(retrieved) == 1 else 'passages'}",
+                    retrieved_chunk_count=len(retrieved),
+                )
+            else:
+                yield self._progress_event(
+                    "retrieval_complete",
+                    "No relevant passages found",
+                    retrieved_chunk_count=0,
+                )
 
         memory_turn = await prepare_memory_for_turn(
             session=session,
@@ -999,6 +1174,7 @@ class ChatService:
             user.id,
             before_sequence=user_message.sequence_number,
         )
+        context_started = time.perf_counter()
         built = self.context_builder.build(
             current_user_content=user_message.content,
             history_messages=history,
@@ -1007,11 +1183,21 @@ class ChatService:
             general_mode=general_mode,
             memory_context=memory_turn.memory_context or None,
         )
+        timing["context_build_ms"] = round((time.perf_counter() - context_started) * 1000, 2)
+        citation_started = time.perf_counter()
         citations = self._build_citations(retrieved) if not general_mode else []
-        for citation in citations:
+        timing["citation_build_ms"] = round((time.perf_counter() - citation_started) * 1000, 2)
+        timing["citation_count"] = len(citations)
+        if citations:
+            yield self._progress_event(
+                "citations",
+                "Finalizing citations…",
+                citation_count=len(citations),
+            )
+        for citation_payload in self._citation_sse_payloads(citations):
             yield StreamEvent(
                 event=StreamEventType.citation,
-                data={"citation": citation.model_dump(mode="json")},
+                data={"citation": citation_payload},
             )
 
         generate_request = GenerateRequest(
@@ -1025,11 +1211,61 @@ class ChatService:
             else self.settings.message_max_response_tokens,
         )
 
+        if not general_mode and retrieved:
+            yield self._progress_event(
+                "generating",
+                "Generating grounded answer…",
+            )
+            yield self._progress_event(
+                "generating_slow",
+                "The local model is preparing a grounded answer…",
+            )
+        else:
+            yield self._progress_event(
+                "generating",
+                "Generating response…",
+            )
+
         if self.tools_enabled:
             assert self.agent_orchestrator is not None
             accumulated = ""
             agent_meta: dict[str, Any] = {}
             tool_execution_ids: list[str] = []
+            cancelled = False
+            stream_finished = False
+            selection = await self._select_tools_for_turn(
+                session=session,
+                user=user,
+                user_content=user_message.content,
+                document_ids=document_ids,
+                memory_enabled=memory_turn.memory_enabled,
+                has_accessible_documents=None,
+            )
+            # ChatService already injected retrieved context + citations. Avoid a
+            # second knowledge_search round-trip (extra latency + buffered generate).
+            if retrieved and "knowledge_search" in selection.selected_tool_names:
+                selection = ToolSelectionResult(
+                    selected_tool_names=[
+                        name for name in selection.selected_tool_names if name != "knowledge_search"
+                    ],
+                    reason_codes=[
+                        *selection.reason_codes,
+                        "knowledge_search_skipped_rag_preloaded",
+                    ],
+                )
+            logger.info(
+                "tool_selection conversation_id=%s tools_selected_count=%s "
+                "selected_tool_names=%s reason_codes=%s conversation_mode=%s "
+                "request_id=%s",
+                conversation.id,
+                selection.tools_selected_count,
+                selection.selected_tool_names,
+                selection.reason_codes,
+                resolve_conversation_mode(document_ids),
+                request_id,
+            )
+            model_started = time.perf_counter()
+            first_token_at: float | None = None
             try:
                 async for event in self.agent_orchestrator.stream(
                     session=session,
@@ -1039,41 +1275,114 @@ class ChatService:
                     conversation_id=conversation.id,
                     message_id=assistant.id,
                     allowed_document_ids=document_ids,
-                    config=AgentRunConfig(
-                        max_iterations=self.settings.agent_max_tool_iterations,
+                    config=self._agent_run_config(
+                        selection=selection,
                         temperature=generate_request.temperature,
                         max_tokens=generate_request.max_tokens,
+                        conversation_mode=resolve_conversation_mode(document_ids),
+                        memory_context_count=len(memory_turn.retrieved),
+                        rag_context_count=len(retrieved),
                     ),
                 ):
                     if event.event == StreamEventType.delta:
                         chunk = str(event.data.get("content") or "")
+                        if chunk and first_token_at is None:
+                            first_token_at = time.perf_counter()
+                            timing["model_time_to_first_token_ms"] = round(
+                                (first_token_at - model_started) * 1000, 2
+                            )
                         accumulated += chunk
+                        # Canonical text event only — never re-emit assistant_token.
                         yield event
+                    elif event.event == StreamEventType.assistant_token:
+                        # Legacy alias: do not forward duplicate text to clients.
+                        continue
                     elif event.event == StreamEventType.agent_completed:
                         agent_meta = event.data
                         tool_execution_ids = [
                             str(x) for x in (event.data.get("tool_execution_ids") or [])
                         ]
+                        timing["provider_streaming"] = event.data.get("provider_streaming")
+                        if timing["model_time_to_first_token_ms"] is None:
+                            timing["model_time_to_first_token_ms"] = event.data.get(
+                                "time_to_first_token_ms"
+                            )
+                        timing["model_total_ms"] = event.data.get("total_generation_ms")
                         yield event
                     elif event.event in {
                         StreamEventType.agent_failed,
                         StreamEventType.error,
                     }:
+                        err = event.data.get("error") or {}
+                        if not isinstance(err, dict):
+                            err = {}
+                        code = str(err.get("code") or event.data.get("code") or "agent_failed")
+                        message = str(
+                            err.get("message")
+                            or event.data.get("message")
+                            or "Agent generation failed"
+                        )
+                        if code == "client_disconnected":
+                            cancelled = True
+                            await self.message_service.cancel_assistant(
+                                session,
+                                assistant,
+                                partial_content=accumulated.strip(),
+                            )
+                            await session.commit()
+                            stream_finished = True
+                            yield StreamEvent(
+                                event=StreamEventType.error,
+                                data={"error": {"code": code, "message": message}},
+                            )
+                            return
                         await self.message_service.fail_assistant(
                             session,
                             assistant,
-                            error_code=str(
-                                (event.data.get("error") or {}).get("code")
-                                or event.data.get("code")
-                                or "agent_failed"
-                            ),
+                            error_code=code,
                             partial_content=accumulated,
                         )
                         await session.commit()
-                        yield event
+                        stream_finished = True
+                        yield StreamEvent(
+                            event=StreamEventType.error,
+                            data={"error": {"code": code, "message": message}},
+                        )
                         return
                     else:
                         yield event
+                stream_finished = True
+                if timing["model_total_ms"] is None:
+                    timing["model_total_ms"] = round(
+                        (time.perf_counter() - model_started) * 1000, 2
+                    )
+            except asyncio.CancelledError:
+                cancelled = True
+                await self.message_service.cancel_assistant(
+                    session,
+                    assistant,
+                    partial_content=accumulated.strip(),
+                )
+                await session.commit()
+                stream_finished = True
+                logger.info(
+                    "stream_cancelled conversation_id=%s message_id=%s "
+                    "partial_chars=%s request_id=%s",
+                    conversation.id,
+                    assistant.id,
+                    len(accumulated.strip()),
+                    request_id,
+                )
+                yield StreamEvent(
+                    event=StreamEventType.error,
+                    data={
+                        "error": {
+                            "code": "client_disconnected",
+                            "message": "Generation cancelled",
+                        }
+                    },
+                )
+                return
             except AppError as exc:
                 await self.message_service.fail_assistant(
                     session,
@@ -1082,6 +1391,7 @@ class ChatService:
                     partial_content=accumulated,
                 )
                 await session.commit()
+                stream_finished = True
                 yield StreamEvent(
                     event=StreamEventType.error,
                     data={"error": {"code": exc.code, "message": exc.message}},
@@ -1095,6 +1405,7 @@ class ChatService:
                     partial_content=accumulated,
                 )
                 await session.commit()
+                stream_finished = True
                 logger.exception(
                     "stream_unexpected_failure conversation_id=%s message_id=%s request_id=%s",
                     conversation.id,
@@ -1111,13 +1422,79 @@ class ChatService:
                     },
                 )
                 return
+            finally:
+                if (
+                    not stream_finished
+                    and not cancelled
+                    and assistant.status == MessageStatus.pending
+                ):
+                    # Generator closed by client disconnect (GeneratorExit) mid-stream.
+                    await self.message_service.cancel_assistant(
+                        session,
+                        assistant,
+                        partial_content=accumulated.strip(),
+                    )
+                    await session.commit()
+                    cancelled = True
+                    logger.info(
+                        "stream_generator_closed conversation_id=%s message_id=%s "
+                        "partial_chars=%s request_id=%s",
+                        conversation.id,
+                        assistant.id,
+                        len(accumulated.strip()),
+                        request_id,
+                    )
+
+            if cancelled:
+                return
+
+            # Do not persist a blank completed assistant message.
+            if not accumulated.strip():
+                await self.message_service.fail_assistant(
+                    session,
+                    assistant,
+                    error_code="empty_assistant_response",
+                    partial_content="",
+                )
+                await session.commit()
+                yield StreamEvent(
+                    event=StreamEventType.error,
+                    data={
+                        "error": {
+                            "code": "empty_assistant_response",
+                            "message": "The model returned an empty response",
+                        }
+                    },
+                )
+                return
+
+            if not general_mode and citations:
+                accumulated = normalize_grounded_answer(accumulated)
 
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            timing["total_request_ms"] = latency_ms
             agent_usage = agent_meta.get("usage") or {}
             assistant.message_metadata = {
                 **(assistant.message_metadata or {}),
                 "tool_execution_ids": tool_execution_ids,
                 "agent_iterations": agent_meta.get("iterations"),
+                "tools_selected_count": selection.tools_selected_count,
+                "selected_tool_names": selection.selected_tool_names,
+                "rag_timing": {
+                    k: timing[k]
+                    for k in (
+                        "embedding_ms",
+                        "retrieval_ms",
+                        "context_build_ms",
+                        "model_time_to_first_token_ms",
+                        "model_total_ms",
+                        "citation_build_ms",
+                        "total_request_ms",
+                        "retrieved_chunk_count",
+                        "citation_count",
+                        "provider_streaming",
+                    )
+                },
             }
             finalized = await self.message_service.finalize_assistant(
                 session,
@@ -1133,19 +1510,7 @@ class ChatService:
                 finish_reason=str(agent_meta.get("finish_reason") or "stop"),
                 citations=citations,
             )
-            for mem_event in await maybe_extract_after_turn(
-                session=session,
-                user=user,
-                conversation=conversation,
-                user_content=user_message.content,
-                assistant_content=finalized.content,
-                user_message_id=user_message.id,
-                memory_service=self.memory_service,
-                memory_extractor=self.memory_extractor,
-            ):
-                yield mem_event
-            await self._maybe_update_title(session, conversation, user_message, finalized)
-            await self._maybe_update_summary(session, conversation, user)
+            # Persist answer before slow post-processing so clients can clear Stop.
             await session.commit()
             finalized = (
                 await session.scalar(
@@ -1165,20 +1530,80 @@ class ChatService:
                     "total_tokens": finalized.total_tokens,
                     "latency_ms": latency_ms,
                     "tool_execution_ids": tool_execution_ids,
+                    "tools_selected_count": selection.tools_selected_count,
+                    "selected_tool_names": selection.selected_tool_names,
+                    "provider_streaming": timing.get("provider_streaming"),
+                    "time_to_first_token_ms": timing.get("model_time_to_first_token_ms"),
+                    "total_generation_ms": timing.get("model_total_ms"),
+                    "retrieval_ms": timing.get("retrieval_ms"),
+                    "retrieved_chunk_count": timing.get("retrieved_chunk_count"),
+                    "citation_count": timing.get("citation_count"),
                 },
             )
             yield StreamEvent(
                 event=StreamEventType.complete,
                 data={"message": message_to_response(finalized).model_dump(mode="json")},
             )
+            logger.info(
+                "stream_completed user_id=%s conversation_id=%s message_id=%s "
+                "retrieval_ms=%s model_ttft_ms=%s model_total_ms=%s "
+                "total_request_ms=%s retrieved_chunk_count=%s citation_count=%s "
+                "provider_streaming=%s request_id=%s",
+                user.id,
+                conversation.id,
+                assistant.id,
+                timing.get("retrieval_ms"),
+                timing.get("model_time_to_first_token_ms"),
+                timing.get("model_total_ms"),
+                timing.get("total_request_ms"),
+                timing.get("retrieved_chunk_count"),
+                timing.get("citation_count"),
+                timing.get("provider_streaming"),
+                request_id,
+            )
+            try:
+                for mem_event in await maybe_extract_after_turn(
+                    session=session,
+                    user=user,
+                    conversation=conversation,
+                    user_content=user_message.content,
+                    assistant_content=finalized.content,
+                    user_message_id=user_message.id,
+                    memory_service=self.memory_service,
+                    memory_extractor=self.memory_extractor,
+                ):
+                    yield mem_event
+                await self._maybe_update_title(
+                    session,
+                    conversation,
+                    user_message,
+                    finalized,
+                    prefer_fast=True,
+                )
+                await self._maybe_update_summary(session, conversation, user)
+                await session.commit()
+            except Exception:
+                logger.exception(
+                    "stream_post_complete_failed conversation_id=%s message_id=%s " "request_id=%s",
+                    conversation.id,
+                    assistant.id,
+                    request_id,
+                )
             return
 
         accumulated = ""
         final_meta: dict[str, Any] = {}
+        model_started = time.perf_counter()
+        first_token_at = None
         try:
             async for event in self.llm_service.stream(generate_request):
                 if event.event == StreamEventType.delta:
                     chunk = str(event.data.get("content") or "")
+                    if chunk and first_token_at is None:
+                        first_token_at = time.perf_counter()
+                        timing["model_time_to_first_token_ms"] = round(
+                            (first_token_at - model_started) * 1000, 2
+                        )
                     accumulated += chunk
                     yield StreamEvent(event=StreamEventType.delta, data={"content": chunk})
                 elif event.event == StreamEventType.complete:
@@ -1205,6 +1630,33 @@ class ChatService:
                     return
                 elif event.event == StreamEventType.start:
                     continue
+            timing["model_total_ms"] = round((time.perf_counter() - model_started) * 1000, 2)
+            timing["provider_streaming"] = True
+        except asyncio.CancelledError:
+            await self.message_service.cancel_assistant(
+                session,
+                assistant,
+                partial_content=accumulated.strip(),
+            )
+            await session.commit()
+            logger.info(
+                "stream_cancelled conversation_id=%s message_id=%s "
+                "partial_chars=%s request_id=%s",
+                conversation.id,
+                assistant.id,
+                len(accumulated.strip()),
+                request_id,
+            )
+            yield StreamEvent(
+                event=StreamEventType.error,
+                data={
+                    "error": {
+                        "code": "client_disconnected",
+                        "message": "Generation cancelled",
+                    }
+                },
+            )
+            return
         except AppError as exc:
             await self.message_service.fail_assistant(
                 session,
@@ -1243,7 +1695,11 @@ class ChatService:
             )
             return
 
+        if not general_mode and citations:
+            accumulated = normalize_grounded_answer(accumulated)
+
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
+        timing["total_request_ms"] = latency_ms
         raw_usage = final_meta.get("usage")
         usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
         finalized = await self.message_service.finalize_assistant(
@@ -1260,19 +1716,6 @@ class ChatService:
             finish_reason=final_meta.get("finish_reason"),
             citations=citations,
         )
-        for mem_event in await maybe_extract_after_turn(
-            session=session,
-            user=user,
-            conversation=conversation,
-            user_content=user_message.content,
-            assistant_content=finalized.content,
-            user_message_id=user_message.id,
-            memory_service=self.memory_service,
-            memory_extractor=self.memory_extractor,
-        ):
-            yield mem_event
-        await self._maybe_update_title(session, conversation, user_message, finalized)
-        await self._maybe_update_summary(session, conversation, user)
         await session.commit()
         finalized = (
             await session.scalar(
@@ -1292,6 +1735,12 @@ class ChatService:
                 "completion_tokens": finalized.completion_tokens,
                 "total_tokens": finalized.total_tokens,
                 "latency_ms": finalized.latency_ms,
+                "provider_streaming": timing.get("provider_streaming"),
+                "time_to_first_token_ms": timing.get("model_time_to_first_token_ms"),
+                "total_generation_ms": timing.get("model_total_ms"),
+                "retrieval_ms": timing.get("retrieval_ms"),
+                "retrieved_chunk_count": timing.get("retrieved_chunk_count"),
+                "citation_count": timing.get("citation_count"),
             },
         )
         yield StreamEvent(
@@ -1300,13 +1749,49 @@ class ChatService:
         )
         logger.info(
             "stream_completed user_id=%s conversation_id=%s message_id=%s "
-            "latency_ms=%s request_id=%s",
+            "retrieval_ms=%s model_ttft_ms=%s model_total_ms=%s "
+            "total_request_ms=%s retrieved_chunk_count=%s citation_count=%s "
+            "provider_streaming=%s request_id=%s",
             user.id,
             conversation.id,
             assistant.id,
-            latency_ms,
+            timing.get("retrieval_ms"),
+            timing.get("model_time_to_first_token_ms"),
+            timing.get("model_total_ms"),
+            timing.get("total_request_ms"),
+            timing.get("retrieved_chunk_count"),
+            timing.get("citation_count"),
+            timing.get("provider_streaming"),
             request_id,
         )
+        try:
+            for mem_event in await maybe_extract_after_turn(
+                session=session,
+                user=user,
+                conversation=conversation,
+                user_content=user_message.content,
+                assistant_content=finalized.content,
+                user_message_id=user_message.id,
+                memory_service=self.memory_service,
+                memory_extractor=self.memory_extractor,
+            ):
+                yield mem_event
+            await self._maybe_update_title(
+                session,
+                conversation,
+                user_message,
+                finalized,
+                prefer_fast=True,
+            )
+            await self._maybe_update_summary(session, conversation, user)
+            await session.commit()
+        except Exception:
+            logger.exception(
+                "stream_post_complete_failed conversation_id=%s message_id=%s request_id=%s",
+                conversation.id,
+                assistant.id,
+                request_id,
+            )
 
     async def _maybe_update_title(
         self,
@@ -1314,6 +1799,8 @@ class ChatService:
         conversation: Conversation,
         user_message: Message,
         assistant: Message,
+        *,
+        prefer_fast: bool = False,
     ) -> None:
         if not self.settings.conversation_auto_title_enabled:
             return
@@ -1339,15 +1826,20 @@ class ChatService:
         if active_assistants != 1:
             return
         try:
-            title = await self._generate_title(user_message.content, assistant.content)
+            if prefer_fast:
+                # Avoid a blocking LLM call on the streaming critical path.
+                title = user_message.content.strip()[:80] or DEFAULT_CONVERSATION_TITLE
+            else:
+                title = await self._generate_title(user_message.content, assistant.content)
             cleaned = self.conversation_service.sanitize_generated_title(title)
             conversation.title = cleaned
             conversation.title_is_auto = True
             conversation.updated_at = datetime.now(UTC)
             await session.flush()
             logger.info(
-                "title_generation_success conversation_id=%s request_id=%s",
+                "title_generation_success conversation_id=%s fast=%s request_id=%s",
                 conversation.id,
+                prefer_fast,
                 request_id_ctx.get() or "-",
             )
         except Exception:

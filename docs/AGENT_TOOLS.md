@@ -72,12 +72,48 @@ Tests create fresh registries; production uses `create_builtin_registry()`.
 When `AGENT_TOOLS_ENABLED=true` and an orchestrator is wired:
 
 1. Load conversation + RAG context (existing Phase 5 behavior preserved)
-2. Attach available tool schemas for the user role
-3. Call the LLM provider
-4. If tool calls are returned: validate → execute → append tool results → repeat
+2. **Deterministically select** a minimal tool allow-list via `select_tools_for_turn`
+   (never send all registered tool schemas; never accept client tool names)
+3. For turns with **no tools selected**: call `llm_service.stream()` and emit
+   progressive **`delta`** events as chunks arrive. (`assistant_token` is a
+   legacy alias and is **not** dual-emitted with the same content — clients must
+   treat `delta` as the canonical assistant text event.)
+4. For turns **with tools**: call `generate()` for tool decisions, execute only
+   authorized selected tools, then synthesize the final answer (progressive
+   `delta` chunks; `stream()` without tool schemas when the decision call returns
+   empty). When ChatService has already preloaded RAG context, `knowledge_search`
+   is skipped to avoid a duplicate retrieval round-trip.
 5. Stop on final text, max iterations, timeout, cancellation, or unrecoverable error
 
 Default max iterations: `AGENT_MAX_TOOL_ITERATIONS=3`.
+
+### Tool selection policy
+
+`backend/app/agents/tool_selection.py` gates schemas by request context:
+
+| Tool | Included when |
+|------|----------------|
+| `calculator` | Clear arithmetic / percentage / conversion intent |
+| `current_datetime` | Date, time, timezone, or relative-date intent |
+| `knowledge_search` | Document mode (or explicit document search) **and** accessible docs |
+| `memory_list` / `memory_search` | Global + conversation memory enabled **and** explicit memory ask |
+| `conversation_summary` | Explicit conversation-summary request |
+
+Trivial chat (`Hello`, `Reply only with Working`, etc.) selects **no tools**.
+
+Logs only: selected tool names, count, and safe reason codes (never full prompts).
+
+### Cancellation
+
+Client disconnect aborts the SSE generator, cancels the in-flight provider
+coroutine where supported, and marks the pending assistant as `cancelled`
+instead of persisting a blank completed message.
+
+### Hydration mismatch note
+
+Browser extensions may inject attributes such as `cz-shortcut-listen` and cause
+React hydration warnings. Do **not** add global `suppressHydrationWarning`.
+Verify in a clean profile / extensions disabled before treating as an app bug.
 
 Recursive same-tool calls within one turn are rejected. Tool names and
 arguments from the model are untrusted.

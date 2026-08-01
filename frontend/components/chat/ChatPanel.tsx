@@ -15,6 +15,7 @@ import { useStream } from "@/lib/useStream";
 import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
 import { ChatComposer, type ComposerDocument } from "@/components/chat/ChatComposer";
 import { MessageList } from "@/components/chat/MessageList";
+import { normalizeCitation } from "@/components/chat/CitationCard";
 import {
   MemoryActivity,
   type MemoryActivityState,
@@ -26,6 +27,8 @@ type StreamingState = {
   userMessageId: string | null;
   assistantMessageId: string | null;
   toolActivity: ToolActivityItem[];
+  /** Shown before the first model token arrives. */
+  statusLabel: string | null;
 };
 
 type Props = {
@@ -49,23 +52,36 @@ export function ChatPanel({ conversationId }: Props) {
     convIdRef.current = conversationId;
   }, [conversationId]);
 
-  const loadConversation = useCallback(async (id: string) => {
-    setLoading(true);
+  const loadConversation = useCallback(async (id: string, opts?: { preserveStream?: boolean; quiet?: boolean }) => {
+    if (!opts?.quiet) {
+      setLoading(true);
+      setMessages([]);
+    }
     setError(null);
-    setMessages([]);
-    setStreaming(null);
-    setMemoryActivity({});
-    cancel();
+    if (!opts?.preserveStream) {
+      setStreaming(null);
+      cancel();
+    } else {
+      setStreaming(null);
+    }
+    if (!opts?.quiet) {
+      setMemoryActivity({});
+    }
 
     const result = await getConversation(id);
-    setLoading(false);
+    if (!opts?.quiet) {
+      setLoading(false);
+    }
 
     if (!result.ok) {
       if (result.status === 404) {
         router.push("/chat");
         return;
       }
-      setError(result.error);
+      // After a successful stream, a reload failure must not look like a generation failure.
+      if (!opts?.quiet) {
+        setError(result.error);
+      }
       return;
     }
 
@@ -101,6 +117,7 @@ export function ChatPanel({ conversationId }: Props) {
 
   async function handleSend(content: string, documentIds: string[] | null) {
     const id = conversationId;
+    setError(null);
 
     // Optimistically show user message.
     const tempUserMsg: ConversationMessage = {
@@ -135,6 +152,7 @@ export function ChatPanel({ conversationId }: Props) {
       userMessageId: null,
       assistantMessageId: null,
       toolActivity: [],
+      statusLabel: "Preparing your question…",
     });
 
     await run(
@@ -146,27 +164,55 @@ export function ChatPanel({ conversationId }: Props) {
         ),
       {
         onStart: (data) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id.startsWith("temp-user-")
+                ? { ...m, id: data.user_message_id }
+                : m,
+            ),
+          );
           setStreaming((prev) =>
             prev
               ? {
                   ...prev,
                   userMessageId: data.user_message_id,
                   assistantMessageId: data.assistant_message_id,
+                  statusLabel: prev.content
+                    ? null
+                    : prev.statusLabel || "Connecting to local model…",
                 }
               : null,
           );
         },
         onDelta: (delta) => {
           setStreaming((prev) =>
-            prev ? { ...prev, content: prev.content + delta } : null,
+            prev
+              ? {
+                  ...prev,
+                  content: prev.content + delta,
+                  statusLabel: null,
+                }
+              : null,
           );
         },
         onCitation: (event) => {
-          setStreaming((prev) =>
-            prev
-              ? { ...prev, citations: [...prev.citations, event.data.citation] }
-              : null,
+          const normalized = normalizeCitation(
+            event.data.citation as MessageCitation & Record<string, unknown>,
           );
+          if (!normalized) return;
+          setStreaming((prev) => {
+            if (!prev) return prev;
+            if (prev.citations.some((c) => c.citation_index === normalized.citation_index)) {
+              return prev;
+            }
+            return { ...prev, citations: [...prev.citations, normalized] };
+          });
+        },
+        onProgress: (data) => {
+          setStreaming((prev) => {
+            if (!prev || prev.content) return prev;
+            return { ...prev, statusLabel: data.message || prev.statusLabel };
+          });
         },
         onToolCallStarted: (data) => {
           setStreaming((prev) => {
@@ -313,9 +359,16 @@ export function ChatPanel({ conversationId }: Props) {
             }));
           }
         },
-        onComplete: () => {
+        onComplete: (data) => {
           setStreaming(null);
-          void loadConversation(id);
+          setError(null);
+          if (data?.message) {
+            setMessages((prev) => {
+              const withoutDupAssistant = prev.filter((m) => m.id !== data.message.id);
+              return [...withoutDupAssistant, data.message];
+            });
+          }
+          void loadConversation(id, { preserveStream: true, quiet: true });
         },
         onMetadata: () => {
           // Optionally store latency/model info.
@@ -327,6 +380,12 @@ export function ChatPanel({ conversationId }: Props) {
         },
       },
     );
+  }
+
+  function handleCancel() {
+    cancel();
+    setStreaming(null);
+    setError("Response stopped");
   }
 
   async function handleMemoryToggle(next: boolean) {
@@ -404,7 +463,7 @@ export function ChatPanel({ conversationId }: Props) {
       <ChatComposer
         onSend={handleSend}
         isStreaming={isStreaming}
-        onCancel={cancel}
+        onCancel={handleCancel}
         availableDocuments={availableDocuments}
       />
     </div>

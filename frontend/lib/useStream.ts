@@ -1,11 +1,13 @@
 /**
  * useStream — React hook that manages a single fetch-based SSE stream.
  *
- * Responsibilities:
- * - Runs the generator returned by `startFn` with an AbortSignal.
- * - Calls the appropriate callbacks for each SSEEvent type.
- * - Aborts on unmount or when `cancel()` is called.
- * - No infinite reconnect.
+ * Streaming contract:
+ * - Canonical assistant text event is `delta`. Append only `delta` content.
+ * - Legacy `assistant_token` is ignored for the text buffer (same payload used
+ *   to be dual-emitted and caused duplicated answers).
+ * - `complete` finalizes the turn; duplicate complete/error events are ignored.
+ * - `error` / `agent_failed` only surface a terminal failure (nested or flat
+ *   `{code,message}` shapes are accepted).
  */
 "use client";
 
@@ -14,6 +16,7 @@ import type {
   SSEEvent,
   SSECompleteData,
   SSEMetadataData,
+  SSEProgressData,
   SSEStartData,
   SSEToolCallArgumentsData,
   SSEToolCallStartedData,
@@ -28,6 +31,7 @@ export type StreamCallbacks = {
   onCitation: (citation: SSEEvent & { event: "citation" }) => void;
   onComplete: (data: SSECompleteData) => void;
   onMetadata?: (data: SSEMetadataData) => void;
+  onProgress?: (data: SSEProgressData) => void;
   onError: (message: string) => void;
   onToolCallStarted?: (data: SSEToolCallStartedData) => void;
   onToolCallArguments?: (data: SSEToolCallArgumentsData) => void;
@@ -39,8 +43,23 @@ export type StreamCallbacks = {
 
 type StreamState = "idle" | "streaming" | "done" | "error";
 
+function extractErrorMessage(data: unknown): string {
+  if (!data || typeof data !== "object") return "Streaming failed";
+  const record = data as Record<string, unknown>;
+  const nested = record.error;
+  if (nested && typeof nested === "object") {
+    const message = (nested as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  if (typeof record.message === "string" && record.message.trim()) {
+    return record.message;
+  }
+  return "Streaming failed";
+}
+
 export function useStream() {
   const abortRef = useRef<AbortController | null>(null);
+  const terminalRef = useRef<"none" | "complete" | "error">("none");
   const [state, setState] = useState<StreamState>("idle");
 
   const cancel = useCallback(() => {
@@ -58,6 +77,7 @@ export function useStream() {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      terminalRef.current = "none";
       setState("streaming");
 
       try {
@@ -69,24 +89,43 @@ export function useStream() {
               callbacks.onStart?.(event.data);
               break;
             case "delta":
-            case "assistant_token":
+              // Canonical assistant text — append once.
               callbacks.onDelta(event.data.content);
               break;
+            case "assistant_token":
+              // Legacy alias — intentionally ignored to prevent duplicated text.
+              break;
             case "citation":
-              callbacks.onCitation(event as SSEEvent & { event: "citation" });
+              try {
+                callbacks.onCitation(event as SSEEvent & { event: "citation" });
+              } catch {
+                // Recoverable citation UI failure must not fail the answer.
+              }
+              break;
+            case "progress":
+              callbacks.onProgress?.(event.data);
               break;
             case "metadata":
               callbacks.onMetadata?.(event.data);
               break;
             case "complete":
+              if (terminalRef.current !== "none") break;
+              terminalRef.current = "complete";
               callbacks.onComplete(event.data);
               setState("done");
               break;
             case "error":
-            case "agent_failed":
-              callbacks.onError(event.data.error.message);
+            case "agent_failed": {
+              if (terminalRef.current === "complete") {
+                // Never demote a successful complete into a terminal error toast.
+                break;
+              }
+              if (terminalRef.current === "error") break;
+              terminalRef.current = "error";
+              callbacks.onError(extractErrorMessage(event.data));
               setState("error");
               break;
+            }
             case "tool_call_started":
               callbacks.onToolCallStarted?.(event.data);
               break;
@@ -112,6 +151,9 @@ export function useStream() {
             case "memory_action_failed":
               callbacks.onMemoryEvent?.(event);
               break;
+            case "agent_started":
+              // Keep existing start IDs; only signal that the agent loop began.
+              break;
             default:
               break;
           }
@@ -123,7 +165,14 @@ export function useStream() {
           setState("idle");
           return;
         }
-        callbacks.onError(err instanceof Error ? err.message : "Streaming failed");
+        if (terminalRef.current === "complete") {
+          setState("done");
+          return;
+        }
+        if (terminalRef.current !== "error") {
+          terminalRef.current = "error";
+          callbacks.onError(err instanceof Error ? err.message : "Streaming failed");
+        }
         setState("error");
       } finally {
         if (abortRef.current === controller) {

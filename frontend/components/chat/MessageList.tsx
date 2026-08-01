@@ -5,12 +5,14 @@ import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/t
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ToolActivity } from "@/components/chat/ToolActivity";
 
-type StreamingState = {
+export type StreamingState = {
   content: string;
   citations: MessageCitation[];
   userMessageId: string | null;
   assistantMessageId: string | null;
   toolActivity: ToolActivityItem[];
+  /** Shown before the first model token arrives. */
+  statusLabel: string | null;
 };
 
 type Props = {
@@ -36,16 +38,19 @@ export function MessageList({
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, streaming?.content, streaming?.toolActivity?.length]);
+  }, [messages.length, streaming?.content, streaming?.toolActivity?.length, streaming?.statusLabel]);
 
   const userMessages = messages.filter((m) => m.role === "user" && m.is_active);
   const assistantMessages = messages.filter((m) => m.role === "assistant" && m.is_active);
   const latestUserMsgId = userMessages.at(-1)?.id;
   const latestAssistantMsgId = assistantMessages.at(-1)?.id;
 
-  const showStreamingBubble = Boolean(
-    streaming && (streaming.assistantMessageId || streaming.toolActivity.length > 0 || streaming.content),
-  );
+  const showPreparing =
+    Boolean(streaming) &&
+    !streaming!.content &&
+    streaming!.toolActivity.length === 0;
+
+  const showStreamingBubble = Boolean(streaming && streaming.content);
 
   const streamingMsg: ConversationMessage | null =
     streaming && showStreamingBubble
@@ -127,6 +132,17 @@ export function MessageList({
       {streaming && streaming.toolActivity.length > 0 && (
         <div className="max-w-[80%]">
           <ToolActivity items={streaming.toolActivity} />
+        </div>
+      )}
+
+      {showPreparing && (
+        <div
+          className="flex max-w-[80%] items-center gap-2 rounded-2xl bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 ring-1 ring-white/10"
+          data-testid="preparing-response"
+          aria-live="polite"
+        >
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+          {streaming?.statusLabel || "Preparing response…"}
         </div>
       )}
 

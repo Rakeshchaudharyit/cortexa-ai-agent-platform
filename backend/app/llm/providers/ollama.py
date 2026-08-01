@@ -154,13 +154,21 @@ class OllamaProvider:
             if request.max_tokens is None
             else min(request.max_tokens, self._settings.llm_max_output_tokens)
         )
+        if self._settings.ollama_chat_num_predict is not None:
+            max_tokens = min(max_tokens, self._settings.ollama_chat_num_predict)
         options: dict[str, Any] = {
             "temperature": temperature,
             "num_predict": max_tokens,
         }
+        if self._settings.ollama_chat_num_ctx is not None:
+            options["num_ctx"] = self._settings.ollama_chat_num_ctx
         if request.stop:
             options["stop"] = request.stop
         return options
+
+    def _keep_alive(self) -> str | None:
+        value = (self._settings.ollama_keep_alive or "").strip()
+        return value or None
 
     async def health_check(self) -> ProviderHealthResult:
         model = self._settings.ollama_model
@@ -302,6 +310,9 @@ class OllamaProvider:
             "stream": False,
             "options": self._options(request),
         }
+        keep_alive = self._keep_alive()
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
         tools_payload = self._build_tools_payload(request)
         if tools_payload is not None:
             body["tools"] = tools_payload
@@ -406,12 +417,16 @@ class OllamaProvider:
             "stream": True,
             "options": self._options(request),
         }
+        keep_alive = self._keep_alive()
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
         tools_payload = self._build_tools_payload(request)
         if tools_payload is not None:
             body["tools"] = tools_payload
             if request.tool_choice:
                 body["tool_choice"] = request.tool_choice
 
+        first_token_timeout = self._settings.ollama_first_token_timeout_seconds
         try:
             async with self._http.stream(
                 "POST",
@@ -448,8 +463,25 @@ class OllamaProvider:
                 usage: TokenUsage | None = None
                 finish_reason: str | None = None
                 resolved_model = model
+                saw_first_token = False
+                deadline = time.perf_counter() + first_token_timeout
 
                 async for line in response.aiter_lines():
+                    if not saw_first_token and time.perf_counter() > deadline:
+                        logger.warning(
+                            "llm_stream_first_token_timeout provider=%s model=%s " "request_id=%s",
+                            self.name,
+                            model,
+                            request_id,
+                        )
+                        yield StreamEvent(
+                            event=StreamEventType.error,
+                            data={
+                                "code": "llm_first_token_timeout",
+                                "message": "Timed out waiting for the first model token",
+                            },
+                        )
+                        return
                     if not line:
                         continue
                     try:
@@ -494,6 +526,7 @@ class OllamaProvider:
                     if isinstance(chunk_message, Mapping):
                         delta = chunk_message.get("content")
                         if isinstance(delta, str) and delta:
+                            saw_first_token = True
                             assembled += delta
                             yield StreamEvent(
                                 event=StreamEventType.delta,
@@ -527,6 +560,14 @@ class OllamaProvider:
                     request_id,
                 )
                 yield StreamEvent(event=StreamEventType.complete, data=complete_data)
+        except GeneratorExit:
+            logger.info(
+                "llm_stream_cancelled provider=%s model=%s request_id=%s",
+                self.name,
+                model,
+                request_id,
+            )
+            raise
         except httpx.TimeoutException:
             logger.warning(
                 "llm_stream_timeout provider=%s model=%s request_id=%s",

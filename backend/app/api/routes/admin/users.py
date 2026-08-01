@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 
 from app.admin.schemas import (
     AdminRevokeSessionsResponse,
@@ -15,7 +15,7 @@ from app.admin.schemas import (
     AdminUserUpdateRequest,
     AdminUserUpdateResponse,
 )
-from app.api.deps import AdminServiceDep, CurrentAdminUser, DbSessionDep
+from app.api.deps import AdminServiceDep, CurrentActiveUser, CurrentAdminUser, DbSessionDep
 from app.core.logging import request_id_ctx
 from app.models.enums import UserRole, UserStatus
 
@@ -106,3 +106,38 @@ async def revoke_sessions(
         ip_address=ip,
         user_agent=ua,
     )
+
+@router.post("/session/acknowledge", status_code=204, response_class=Response)
+async def acknowledge_admin_session(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> Response:
+    ip, ua = _client_meta(request)
+    await admin.record_admin_login_success(
+        session,
+        actor=admin_user,
+        request_id=request_id_ctx.get(),
+        ip_address=ip,
+        user_agent=ua,
+    )
+    return Response(status_code=204)
+
+
+@router.post("/session/denied", status_code=204, response_class=Response)
+async def record_denied_admin_session(
+    request: Request,
+    user: CurrentActiveUser,
+    session: DbSessionDep,
+    admin: AdminServiceDep,
+) -> Response:
+    ip, ua = _client_meta(request)
+    await admin.record_admin_login_denied(
+        session,
+        actor=user,
+        request_id=request_id_ctx.get(),
+        ip_address=ip,
+        user_agent=ua,
+    )
+    return Response(status_code=204)

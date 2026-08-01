@@ -426,6 +426,54 @@ class AdminService:
         await session.commit()
         return AdminRevokeSessionsResponse(user_id=user.id, sessions_revoked=revoked)
 
+
+    async def record_admin_login_success(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="admin_login_success",
+            target_type="session",
+            target_id=str(actor.id),
+            target_user_id=actor.id,
+            safe_summary="Administrator signed in to the admin portal",
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            commit=True,
+        )
+
+    async def record_admin_login_denied(
+        self,
+        session: AsyncSession,
+        *,
+        actor: User,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
+        await record_admin_action(
+            session,
+            actor_user_id=actor.id,
+            action="admin_login_denied",
+            target_type="session",
+            target_id=str(actor.id),
+            target_user_id=actor.id,
+            safe_summary="Authenticated non-admin attempted admin portal login",
+            metadata={"role": actor.role.value},
+            request_id=request_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            commit=True,
+        )
+
     # ── Documents ──────────────────────────────────────────────────────────
 
     def _document_summary(self, document: Any, owner: User) -> AdminDocumentSummary:

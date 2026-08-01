@@ -1,4 +1,4 @@
-# Enterprise Administration Portal (Phase 8)
+# Enterprise Administration Portal (Phase 8 / 8.1)
 
 ## Purpose
 
@@ -6,12 +6,15 @@ Cortexa’s enterprise SaaS admin portal gives authenticated **admin** users vis
 
 Normal user APIs remain owner-scoped. Admin endpoints expose explicitly designed administrative views and audit every mutating action.
 
+Phase 8.1 adds a dedicated administrator login experience with audited session acknowledge/denied events, plus safe delete/deactivate workflows documented separately as they land.
+
 ## Architecture
 
 - **Backend package:** `backend/app/admin/` (schemas, repository, service, analytics, audit, settings, policies)
 - **API routes:** `backend/app/api/routes/admin/*` under `/api/v1/admin/*`
 - **Models / migration:** `PlatformSetting`, `ToolConfiguration`, `AdminAuditEvent` via `0009_enterprise_admin`
-- **Frontend:** `/admin/*` App Router pages with `AdminGuard`, `AdminShell`, reusable table/metric components
+- **Frontend:** `/admin/*` App Router pages with `AdminGuard`, `AdminShell`, dedicated `/admin/login`
+- **Auth:** Reuses existing `POST /api/v1/auth/login`, HttpOnly refresh cookies, and `AuthProvider` — no second authentication system
 - **Charts:** `recharts` (dark-theme compatible line/area/bar charts)
 
 ## RBAC
@@ -24,11 +27,16 @@ All `/api/v1/admin/*` endpoints require:
 2. active account
 3. `admin` role (`CurrentAdminUser` / `require_admin`)
 
-Frontend `/admin/*` routes use `AdminGuard`:
+Frontend route behavior:
 
-- unauthenticated → login
-- non-admin → access denied
-- admin → portal shell
+| Route | Access |
+|-------|--------|
+| `/admin/login` | Public |
+| `/admin/*` (other) | Active admin required |
+| Unauthenticated `/admin/*` | Redirect to `/admin/login` |
+| Authenticated non-admin | Safe access-denied (no portal content) |
+| Authenticated admin on `/admin/login` | Redirect to `/admin` |
+| Admin logout | Redirect to `/admin/login` |
 
 Backend remains the source of truth.
 
@@ -49,6 +57,7 @@ Production is refused unless `ADMIN_USER_CLI_ALLOW_PRODUCTION=true`.
 
 | Path | Purpose |
 |------|---------|
+| `/admin/login` | Dedicated administrator login |
 | `/admin` | Executive dashboard |
 | `/admin/users` | User management |
 | `/admin/users/[userId]` | User detail / actions |
@@ -64,6 +73,8 @@ Production is refused unless `ADMIN_USER_CLI_ALLOW_PRODUCTION=true`.
 
 ## API surface
 
+- `POST /api/v1/admin/session/acknowledge` — audit successful admin portal session
+- `POST /api/v1/admin/session/denied` — audit non-admin admin-login attempt
 - `GET /api/v1/admin/dashboard`
 - `GET/PATCH /api/v1/admin/users/{id}`, `POST .../revoke-sessions`
 - `GET/DELETE /api/v1/admin/documents/{id}`, `POST .../reprocess`
@@ -103,4 +114,4 @@ Admin lists minimize sensitive content:
 
 Backend: `backend/tests/test_admin_api.py` (authz, settings, last-admin protection, audit).
 
-Frontend: `frontend/tests/admin.test.tsx` (guard, nav, dashboard, users, tools, system, settings, analytics).
+Frontend: `frontend/tests/admin.test.tsx` (login page, guard, dashboard, users, tools, system, settings, analytics).

@@ -59,8 +59,10 @@ import AdminUsersPage from "@/app/admin/users/page";
 import AdminToolsPage from "@/app/admin/tools/page";
 import AdminSystemPage from "@/app/admin/system/page";
 import AdminSettingsPage from "@/app/admin/settings/page";
+import AdminLoginPage from "@/app/admin/login/page";
 import AdminAnalyticsPage from "@/app/admin/analytics/page";
 import {
+  acknowledgeAdminSession,
   fetchAdminAnalytics,
   fetchAdminDashboard,
   fetchAdminSettings,
@@ -69,6 +71,7 @@ import {
   fetchAdminUsers,
   patchAdminSettings,
   patchAdminTool,
+  reportAdminLoginDenied,
 } from "@/services/admin";
 
 const mockedAuth = vi.mocked(useAuth);
@@ -127,6 +130,8 @@ describe("admin portal", () => {
       </AdminGuard>,
     );
     expect(screen.getByTestId("admin-access-denied")).toBeInTheDocument();
+    expect(screen.getByText(/Administrator access is required/i)).toBeInTheDocument();
+    expect(screen.getByTestId("admin-denied-login")).toBeInTheDocument();
   });
 
   it("shows Admin nav for admins and hides for users", () => {
@@ -354,5 +359,148 @@ describe("admin portal", () => {
     await waitFor(() => screen.getByTestId("admin-analytics-range"));
     await user.click(screen.getByRole("button", { name: "7d" }));
     await waitFor(() => expect(fetchAdminAnalytics).toHaveBeenCalledWith(7));
+  });
+});
+
+describe("admin login page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders branded admin login and links", () => {
+    mockedAuth.mockReturnValue({
+      status: "unauthenticated",
+      user: null,
+      error: null,
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      clearError: vi.fn(),
+    } as never);
+    render(<AdminLoginPage />);
+    expect(screen.getByTestId("admin-login-page")).toBeInTheDocument();
+    expect(screen.getByText("Cortexa Administration")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-login-security-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-forgot-password-link")).toHaveAttribute(
+      "href",
+      "/forgot-password",
+    );
+    expect(screen.getByTestId("admin-back-to-user-login")).toHaveAttribute("href", "/login");
+    expect(screen.queryByText(/demo credentials/i)).not.toBeInTheDocument();
+  });
+
+  it("submits existing auth API and acknowledges admin session", async () => {
+    const user = userEvent.setup();
+    const login = vi.fn().mockResolvedValue({ ok: true });
+    mockedAuth.mockReturnValue({
+      status: "unauthenticated",
+      user: null,
+      error: null,
+      login,
+      register: vi.fn(),
+      logout: vi.fn(),
+      clearError: vi.fn(),
+    } as never);
+    vi.mocked(acknowledgeAdminSession).mockResolvedValue({
+      ok: true,
+      status: 204,
+      data: null,
+    } as never);
+    render(<AdminLoginPage />);
+    await user.type(screen.getByTestId("admin-login-email"), "admin@example.com");
+    await user.type(screen.getByTestId("admin-login-password"), "StrongDemoPassword123!");
+    await user.click(screen.getByTestId("admin-login-submit"));
+    await waitFor(() => expect(login).toHaveBeenCalled());
+    expect(acknowledgeAdminSession).toHaveBeenCalled();
+  });
+
+  it("shows administrator-access-required for normal users", async () => {
+    const user = userEvent.setup();
+    const login = vi.fn().mockResolvedValue({ ok: true });
+    const logout = vi.fn().mockResolvedValue(undefined);
+    mockedAuth.mockReturnValue({
+      status: "unauthenticated",
+      user: null,
+      error: null,
+      login,
+      register: vi.fn(),
+      logout,
+      clearError: vi.fn(),
+    } as never);
+    vi.mocked(acknowledgeAdminSession).mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: "Forbidden",
+    } as never);
+    vi.mocked(reportAdminLoginDenied).mockResolvedValue({
+      ok: true,
+      status: 204,
+      data: null,
+    } as never);
+    render(<AdminLoginPage />);
+    await user.type(screen.getByTestId("admin-login-email"), "user@example.com");
+    await user.type(screen.getByTestId("admin-login-password"), "StrongDemoPassword123!");
+    await user.click(screen.getByTestId("admin-login-submit"));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-login-error")).toHaveTextContent(
+        /Administrator access is required/i,
+      ),
+    );
+    expect(logout).toHaveBeenCalled();
+  });
+
+  it("shows generic invalid credentials", async () => {
+    const user = userEvent.setup();
+    const login = vi.fn().mockResolvedValue({ ok: false, error: "Invalid email or password" });
+    mockedAuth.mockReturnValue({
+      status: "unauthenticated",
+      user: null,
+      error: null,
+      login,
+      register: vi.fn(),
+      logout: vi.fn(),
+      clearError: vi.fn(),
+    } as never);
+    render(<AdminLoginPage />);
+    await user.type(screen.getByTestId("admin-login-email"), "x@example.com");
+    await user.type(screen.getByTestId("admin-login-password"), "StrongDemoPassword123!");
+    await user.click(screen.getByTestId("admin-login-submit"));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-login-error")).toHaveTextContent(
+        /Invalid email or password/i,
+      ),
+    );
+  });
+
+  it("shows loading state while signing in", async () => {
+    const user = userEvent.setup();
+    let resolveLogin: (value: { ok: true }) => void = () => undefined;
+    const login = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          resolveLogin = resolve;
+        }),
+    );
+    mockedAuth.mockReturnValue({
+      status: "unauthenticated",
+      user: null,
+      error: null,
+      login,
+      register: vi.fn(),
+      logout: vi.fn(),
+      clearError: vi.fn(),
+    } as never);
+    vi.mocked(acknowledgeAdminSession).mockResolvedValue({
+      ok: true,
+      status: 204,
+      data: null,
+    } as never);
+    render(<AdminLoginPage />);
+    await user.type(screen.getByTestId("admin-login-email"), "admin@example.com");
+    await user.type(screen.getByTestId("admin-login-password"), "StrongDemoPassword123!");
+    await user.click(screen.getByTestId("admin-login-submit"));
+    expect(screen.getByTestId("admin-login-submit")).toHaveTextContent(/Signing in/i);
+    resolveLogin({ ok: true });
+    await waitFor(() => expect(acknowledgeAdminSession).toHaveBeenCalled());
   });
 });

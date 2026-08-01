@@ -160,3 +160,17 @@ export async function deleteAdminDocument(documentId: string) {
 export async function reprocessAdminDocument(documentId: string) {
   return apiPost(`/api/v1/admin/documents/${documentId}/reprocess`, { ...auth(), json: {} });
 }
+
+export async function acknowledgeAdminSession() {
+  return apiRequest<null>("POST", "/api/v1/admin/session/acknowledge", {
+    ...auth(),
+    acceptStatuses: [204],
+  });
+}
+
+export async function reportAdminLoginDenied() {
+  return apiRequest<null>("POST", "/api/v1/admin/session/denied", {
+    ...auth(),
+    acceptStatuses: [204],
+  });
+}

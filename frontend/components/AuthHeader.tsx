@@ -70,7 +70,15 @@ export function AuthHeader() {
             >
               Memories
             </Link>
-            {/* Admin-only navigation is intentionally omitted — no admin UI is shipped yet. */}
+            {user?.role === "admin" ? (
+              <Link
+                href="/admin"
+                className={navClass(Boolean(pathname?.startsWith("/admin")))}
+                data-testid="admin-link"
+              >
+                Admin
+              </Link>
+            ) : null}
             <button
               type="button"
               onClick={() => {

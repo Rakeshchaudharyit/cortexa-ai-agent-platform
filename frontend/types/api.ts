@@ -347,6 +347,14 @@ export type SSEDeltaData = { content: string };
 
 export type SSECitationData = { citation: MessageCitation };
 
+export type SSEProgressData = {
+  phase: string;
+  message: string;
+  retrieved_chunk_count?: number;
+  citation_count?: number;
+  elapsed_ms?: number;
+};
+
 export type SSEMetadataData = {
   model: string | null;
   provider: string | null;
@@ -355,6 +363,12 @@ export type SSEMetadataData = {
   total_tokens: number | null;
   latency_ms: number | null;
   tool_execution_ids?: string[];
+  provider_streaming?: boolean | null;
+  time_to_first_token_ms?: number | null;
+  total_generation_ms?: number | null;
+  retrieval_ms?: number | null;
+  retrieved_chunk_count?: number | null;
+  citation_count?: number | null;
 };
 
 export type SSECompleteData = { message: ConversationMessage };
@@ -398,6 +412,7 @@ export type SSEEvent =
   | { event: "start"; data: SSEStartData }
   | { event: "delta"; data: SSEDeltaData }
   | { event: "citation"; data: SSECitationData }
+  | { event: "progress"; data: SSEProgressData }
   | { event: "metadata"; data: SSEMetadataData }
   | { event: "complete"; data: SSECompleteData }
   | { event: "error"; data: SSEErrorData }

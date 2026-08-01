@@ -128,6 +128,7 @@ describe("MessageList tool streaming", () => {
           toolActivity: [
             { id: "c1", tool_name: "calculator", status: "succeeded", result: { result: 441 } },
           ],
+          statusLabel: null,
         }}
       />,
     );

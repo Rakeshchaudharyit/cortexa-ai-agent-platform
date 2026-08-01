@@ -62,9 +62,14 @@ async def test_no_tool_response_works(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
+        config=AgentRunConfig(selected_tool_names=[]),
     )
     assert result.content == "Hello without tools"
     assert result.tool_execution_ids == []
+    assert provider.stream_calls >= 1
+    assert provider.generate_calls == 0
+    assert provider.last_request is not None
+    assert provider.last_request.tools in (None, [])
 
 
 @pytest.mark.asyncio
@@ -84,7 +89,10 @@ async def test_single_tool_call_and_result_returned(
                     )
                 ],
             ),
-            FakeLLMTurn(content="18% of 2450 is 441.", finish_reason="stop"),
+            FakeLLMTurn(
+                content="18% of 2450 is 441.",
+                finish_reason="stop",
+            ),
         ]
     )
     orch = _orchestrator(settings, provider)
@@ -97,10 +105,10 @@ async def test_single_tool_call_and_result_returned(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
+        config=AgentRunConfig(selected_tool_names=["calculator"]),
     )
     assert "441" in result.content
     assert len(result.tool_execution_ids) == 1
-    # Second generate request must include a tool role message.
     assert any(m.role == MessageRole.tool for m in provider.requests[1].messages)
 
 
@@ -144,7 +152,7 @@ async def test_two_step_tool_sequence(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
-        config=AgentRunConfig(max_iterations=3),
+        config=AgentRunConfig(max_iterations=3, selected_tool_names=["calculator"]),
     )
     assert result.content == "Done with both."
     assert len(result.tool_execution_ids) == 2
@@ -174,11 +182,14 @@ async def test_invalid_tool_name_handled(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
+        config=AgentRunConfig(selected_tool_names=["calculator"]),
     )
     assert "could not use" in result.content.lower() or result.content
-    tool_msg = provider.requests[1].messages[-1]
-    assert tool_msg.role == MessageRole.tool
-    assert "not available" in tool_msg.content
+    assert any(
+        m.role == MessageRole.tool and "not authorized" in (m.content or "").lower()
+        for req in provider.requests
+        for m in req.messages
+    )
 
 
 @pytest.mark.asyncio
@@ -211,9 +222,10 @@ async def test_invalid_arguments_handled(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
+        config=AgentRunConfig(selected_tool_names=["calculator"]),
     )
     assert result.content
-    assert any(m.role == MessageRole.tool for m in provider.requests[1].messages)
+    assert any(m.role == MessageRole.tool for req in provider.requests for m in req.messages)
 
 
 @pytest.mark.asyncio
@@ -266,7 +278,7 @@ async def test_max_iterations_stops_loop(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
-        config=AgentRunConfig(max_iterations=2),
+        config=AgentRunConfig(max_iterations=2, selected_tool_names=["calculator"]),
     )
     assert "maximum number of tool steps" in result.content
     assert provider.generate_calls == 2
@@ -295,6 +307,7 @@ async def test_streaming_events_ordered(
     orch = _orchestrator(settings, provider)
     user = await _user(db_session)
     events = []
+    deltas = 0
     async for event in orch.stream(
         session=db_session,
         user=user,
@@ -303,11 +316,15 @@ async def test_streaming_events_ordered(
         conversation_id=None,
         message_id=None,
         allowed_document_ids=None,
+        config=AgentRunConfig(selected_tool_names=["calculator"]),
     ):
         events.append(event.event)
+        if event.event == StreamEventType.delta:
+            deltas += 1
 
     assert events[0] == StreamEventType.agent_started
     assert StreamEventType.tool_call_started in events
     assert StreamEventType.tool_execution_succeeded in events
     assert StreamEventType.delta in events
+    assert deltas >= 1
     assert events[-1] == StreamEventType.agent_completed

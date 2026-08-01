@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -35,6 +36,20 @@ logger = logging.getLogger("cortexa.api.conversations")
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 usage_router = APIRouter(prefix="/usage", tags=["usage"])
+
+
+async def _client_disconnected(request: Request) -> bool:
+    """Poll disconnect without blocking forever on a quiet client."""
+    while True:
+        if await request.is_disconnected():
+            return True
+        await asyncio.sleep(0.25)
+
+
+async def _aclose_agen(agen: AsyncIterator[StreamEvent]) -> None:
+    closer = getattr(agen, "aclose", None)
+    if closer is not None:
+        await closer()
 
 
 @router.post(
@@ -235,14 +250,44 @@ async def stream_message(
     chat: ChatServiceDep,
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[bytes]:
+        agen = chat.stream_message(session, user, conversation_id, body)
+        disconnect_task: asyncio.Task[bool] | None = None
+        next_event_task: asyncio.Task[StreamEvent] | None = None
         try:
-            async for event in chat.stream_message(session, user, conversation_id, body):
-                if await request.is_disconnected():
+            disconnect_task = asyncio.create_task(
+                _client_disconnected(request),
+                name="conversation-stream-disconnect",
+            )
+            while True:
+                next_event_task = asyncio.create_task(
+                    agen.__anext__(),  # type: ignore[arg-type]
+                    name="conversation-stream-next",
+                )
+                done, _pending = await asyncio.wait(
+                    {next_event_task, disconnect_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if disconnect_task in done:
                     logger.info("conversation_stream_client_disconnected")
+                    next_event_task.cancel()
+                    try:
+                        await next_event_task
+                    except (asyncio.CancelledError, StopAsyncIteration):
+                        pass
+                    await _aclose_agen(agen)
+                    break
+                try:
+                    event = next_event_task.result()
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
                     break
                 yield event.to_sse().encode("utf-8")
         except ClientDisconnect:
             logger.info("conversation_stream_client_disconnect_exception")
+            if next_event_task is not None and not next_event_task.done():
+                next_event_task.cancel()
+            await _aclose_agen(agen)
         except AppError as exc:
             error_event = StreamEvent(
                 event=StreamEventType.error,
@@ -261,6 +306,13 @@ async def stream_message(
                 },
             )
             yield error_event.to_sse().encode("utf-8")
+        finally:
+            if disconnect_task is not None and not disconnect_task.done():
+                disconnect_task.cancel()
+                try:
+                    await disconnect_task
+                except asyncio.CancelledError:
+                    pass
 
     return StreamingResponse(
         event_stream(),

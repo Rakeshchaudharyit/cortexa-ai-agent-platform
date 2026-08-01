@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.conversations.citations import dedupe_retrieved_chunks, normalize_grounded_answer
 from app.core.config import Settings
 from app.core.logging import request_id_ctx
 from app.documents.schemas import RagCitation, RagQueryRequest, RagQueryResponse
@@ -19,15 +20,20 @@ from app.services.retrieval import RetrievalService, RetrievedChunk
 logger = logging.getLogger("cortexa.rag")
 
 _NO_CONTEXT_ANSWER = (
-    "I could not find enough information in your uploaded documents to answer that question."
+    "I couldn’t find that information in the selected documents. "
+    "Try choosing different documents or switch to General Agent mode."
 )
 
 _SYSTEM_PROMPT = (
     "You are a grounded question-answering assistant for the user's private documents. "
-    "Answer ONLY using the provided context. If the context is insufficient, clearly say "
-    "you do not know based on the available documents. "
-    "Cite supporting passages using bracket markers such as [1], [2] that match the context. "
-    "Do not invent facts, filenames, or citations outside the given context."
+    "Answer ONLY using the provided context. "
+    "Answer directly and concisely. Do not repeat the question. "
+    "Prefer a short factual sentence with an inline citation marker. "
+    "Cite supporting passages ONLY with bracket markers such as [1], [2]. "
+    "Do not invent facts, filenames, or citations. "
+    'Do not write "Source:", "Citation ID", filenames, or other citation metadata in prose. '
+    "If the context is insufficient, clearly say you could not find it in the selected "
+    "documents and do not invent an answer or citation."
 )
 
 
@@ -62,6 +68,7 @@ class RagService:
             top_k=request.top_k,
             document_ids=request.document_ids,
         )
+        retrieved = dedupe_retrieved_chunks(retrieved)
 
         if not retrieved:
             logger.info(
@@ -115,7 +122,7 @@ class RagService:
             request_id,
         )
         return RagQueryResponse(
-            answer=generation.content,
+            answer=normalize_grounded_answer(generation.content),
             citations=citations,
             retrieval_count=len(retrieved),
             model=generation.model,
@@ -129,7 +136,7 @@ class RagService:
         parts: list[str] = []
         used = 0
         for index, item in enumerate(retrieved, start=1):
-            header = f"[{index}] Source: {item.document.original_filename}"
+            header = f"[{index}]"
             body = item.chunk.content.strip()
             block = f"{header}\n{body}"
             separator = 2 if parts else 0

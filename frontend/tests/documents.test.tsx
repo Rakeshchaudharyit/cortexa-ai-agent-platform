@@ -380,7 +380,7 @@ describe("DocumentPanel", () => {
         Response.json(
           sampleRagResponse({
             answer:
-              "I could not find enough information in your uploaded documents to answer that question.",
+              "I couldn’t find that information in the selected documents. Try choosing different documents or switch to General Agent mode.",
             citations: [],
             retrieval_count: 0,
             grounded: false,
@@ -395,7 +395,7 @@ describe("DocumentPanel", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("rag-no-result")).toHaveTextContent(
-        "could not find enough information",
+        "couldn’t find that information",
       );
     });
     expect(screen.queryByTestId("rag-answer")).toBeNull();

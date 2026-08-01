@@ -67,18 +67,9 @@ def conversation_to_summary(conversation: Conversation) -> ConversationSummaryRe
 
 
 def citation_to_response(citation: MessageCitation) -> MessageCitationResponse:
-    return MessageCitationResponse(
-        id=citation.id,
-        citation_index=citation.citation_index,
-        citation_id=f"[{citation.citation_index}]",
-        document_id=citation.document_id,
-        chunk_id=citation.chunk_id,
-        filename=citation.filename,
-        page_number=citation.page_number,
-        chunk_index=citation.chunk_index,
-        excerpt=citation.excerpt,
-        similarity_score=citation.similarity_score,
-    )
+    from app.conversations.citations import message_citation_to_response
+
+    return message_citation_to_response(citation)
 
 
 def message_to_response(

@@ -174,6 +174,8 @@ class StreamEventType(str, Enum):
     metadata = "metadata"
     complete = "complete"
     error = "error"
+    # RAG / generation progress (safe status text only — no document contents)
+    progress = "progress"
     # Phase 6 agent/tool lifecycle (backward-compatible additions)
     agent_started = "agent_started"
     tool_call_started = "tool_call_started"

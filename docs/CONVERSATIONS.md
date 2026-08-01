@@ -148,11 +148,14 @@ Media type: `text/event-stream`. Events match the normalized LLM stream plus con
 | Event | Data (JSON) |
 | --- | --- |
 | `start` | `conversation_id`, `user_message_id`, `assistant_message_id` |
-| `delta` | `{ "content": "<token chunk>" }` |
-| `citation` | `{ "citation": { ... } }` — emitted before LLM tokens when RAG chunks exist |
-| `metadata` | `model`, `provider`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms` |
-| `complete` | `{ "message": <MessageResponse JSON> }` |
-| `error` | `{ "error": { "code", "message" } }` |
+| `progress` | `{ "phase", "message", ... }` — RAG/generation status (no document text) |
+| `delta` | `{ "content": "<token chunk>" }` — **canonical** assistant text |
+| `citation` | `{ "citation": <MessageCitationResponse JSON> }` — same schema as persisted messages; emitted before LLM tokens when RAG chunks exist |
+| `metadata` | `model`, `provider`, token counts, `latency_ms`, optional RAG timing fields |
+| `complete` | `{ "message": <MessageResponse JSON> }` — emitted once after the answer is persisted |
+| `error` | `{ "error": { "code", "message" } }` — terminal failure only; never after `complete` |
+
+Canonical text event: **`delta`**. Legacy `assistant_token` (if present) must not be appended again by clients.
 
 Idempotent replays (same `client_request_id`) stream stored assistant content via the same event sequence.
 
@@ -203,7 +206,7 @@ The standalone `POST /api/v1/rag/query` endpoint from Phase 4 remains available 
 
 When retrieval is attempted (scope is not general chat) and **no chunks** pass the similarity threshold:
 
-- Assistant content is a fixed fallback: *"I could not find enough information in your uploaded documents to answer that question."*
+- Assistant content is a fixed fallback: *"I couldn’t find that information in the selected documents. Try choosing different documents or switch to General Agent mode."*
 - `grounded=false`, `citations=[]`, `finish_reason=no_context`
 - **No LLM call** (same policy as Phase 4 RAG query)
 

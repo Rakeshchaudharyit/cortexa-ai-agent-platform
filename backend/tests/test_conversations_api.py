@@ -400,6 +400,7 @@ async def test_streaming_chat_events(chat_client: AsyncClient, chat_app: FastAPI
     conversation_id = created.json()["id"]
     llm: FakeLLMProvider = chat_app.state.fake_llm_provider
     llm.fail_mode = None
+    llm.generate_content = "Hello world"
 
     async with chat_client.stream(
         "POST",

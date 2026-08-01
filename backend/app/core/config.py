@@ -191,6 +191,25 @@ class Settings(BaseSettings):
         le=120,
         alias="OLLAMA_CONNECT_TIMEOUT_SECONDS",
     )
+    ollama_keep_alive: str = Field(default="10m", alias="OLLAMA_KEEP_ALIVE")
+    ollama_chat_num_predict: int | None = Field(
+        default=None,
+        ge=1,
+        le=8192,
+        alias="OLLAMA_CHAT_NUM_PREDICT",
+    )
+    ollama_chat_num_ctx: int | None = Field(
+        default=None,
+        ge=512,
+        le=131_072,
+        alias="OLLAMA_CHAT_NUM_CTX",
+    )
+    ollama_first_token_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        le=600,
+        alias="OLLAMA_FIRST_TOKEN_TIMEOUT_SECONDS",
+    )
     llm_max_input_characters: int = Field(
         default=32_000,
         ge=1,
@@ -764,6 +783,11 @@ class Settings(BaseSettings):
             "database_identity_check_enabled": self.database_identity_check_enabled,
             "llm_provider": self.llm_provider,
             "ollama_model": self.ollama_model,
+            "ollama_keep_alive": self.ollama_keep_alive,
+            "ollama_chat_num_predict": self.ollama_chat_num_predict,
+            "ollama_chat_num_ctx": self.ollama_chat_num_ctx,
+            "ollama_request_timeout_seconds": self.ollama_request_timeout_seconds,
+            "ollama_first_token_timeout_seconds": self.ollama_first_token_timeout_seconds,
             "llm_max_input_characters": self.llm_max_input_characters,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_default_temperature": self.llm_default_temperature,

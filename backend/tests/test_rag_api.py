@@ -86,7 +86,9 @@ async def test_rag_no_context_skips_llm(
     assert body["grounded"] is False
     assert body["retrieval_count"] == 0
     assert body["citations"] == []
-    assert "could not find enough information" in body["answer"].lower()
+    assert "couldn’t find that information" in body["answer"].lower() or (
+        "could not find" in body["answer"].lower()
+    )
     assert llm.generate_calls == 0
 
 

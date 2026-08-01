@@ -44,6 +44,12 @@ class AgentRunConfig(BaseModel):
     max_iterations: int = Field(default=3, ge=1, le=10)
     temperature: float | None = None
     max_tokens: int | None = None
+    # Deterministic allow-list from ToolSelectionPolicy (never client-supplied).
+    selected_tool_names: list[str] = Field(default_factory=list)
+    selection_reason_codes: list[str] = Field(default_factory=list)
+    conversation_mode: str = "general"
+    memory_context_count: int = 0
+    rag_context_count: int = 0
 
 
 class AgentRunResult(BaseModel):

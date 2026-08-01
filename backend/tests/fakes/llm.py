@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -31,6 +32,7 @@ class FakeLLMTurn:
     content: str = "fake completion"
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str | None = None
+    stream_chunks: list[str] | None = None
 
 
 class FakeLLMProvider:
@@ -51,6 +53,8 @@ class FakeLLMProvider:
         fail_mode: str | None = None,
         scripted_turns: Sequence[FakeLLMTurn] | None = None,
         turn_factory: Callable[[GenerateRequest, int], FakeLLMTurn] | None = None,
+        stream_delay_seconds: float = 0.0,
+        cancel_event: asyncio.Event | None = None,
     ) -> None:
         self._provider_name = provider_name
         self._model = model
@@ -64,6 +68,10 @@ class FakeLLMProvider:
         self.requests: list[GenerateRequest] = []
         self._scripted_turns = list(scripted_turns or [])
         self._turn_factory = turn_factory
+        self.stream_delay_seconds = stream_delay_seconds
+        self.cancel_event = cancel_event
+        self.stream_cancelled = False
+        self.generate_cancelled = False
 
     @property
     def name(self) -> str:
@@ -101,19 +109,28 @@ class FakeLLMProvider:
             message="Fake provider is ready",
         )
 
-    def _next_turn(self, request: GenerateRequest) -> FakeLLMTurn:
-        index = self.generate_calls - 1
+    def _next_turn(self, request: GenerateRequest, *, for_stream: bool = False) -> FakeLLMTurn:
+        index = (self.generate_calls + self.stream_calls) - 1
         if self._turn_factory is not None:
             return self._turn_factory(request, index)
         if index < len(self._scripted_turns):
             return self._scripted_turns[index]
-        return FakeLLMTurn(content=self.generate_content, finish_reason="stop")
+        content = self.generate_content
+        if for_stream and not self._scripted_turns:
+            content = self.generate_content
+        return FakeLLMTurn(content=content, finish_reason="stop")
 
     async def generate(self, request: GenerateRequest) -> GenerateResponse:
         self.generate_calls += 1
         self.last_request = request
         self.requests.append(request)
-        self._raise_if_configured()
+        try:
+            if self.stream_delay_seconds > 0:
+                await asyncio.sleep(self.stream_delay_seconds)
+            self._raise_if_configured()
+        except asyncio.CancelledError:
+            self.generate_cancelled = True
+            raise
         model = request.model or self._model
         turn = self._next_turn(request)
         finish = turn.finish_reason
@@ -147,17 +164,70 @@ class FakeLLMProvider:
                 },
             )
             return
+        if self.fail_mode == "first_token_timeout":
+            yield StreamEvent(
+                event=StreamEventType.error,
+                data={
+                    "code": "llm_first_token_timeout",
+                    "message": "Timed out waiting for the first model token",
+                },
+            )
+            return
+        if self.fail_mode == "timeout":
+            yield StreamEvent(
+                event=StreamEventType.error,
+                data={
+                    "code": "llm_request_timeout",
+                    "message": "LLM provider request timed out",
+                },
+            )
+            return
         if self.fail_mode:
             self._raise_if_configured()
-        for token in ("Hello", " ", "world"):
-            yield StreamEvent(event=StreamEventType.delta, data={"content": token})
+
+        turn = self._next_turn(request, for_stream=True)
+        if turn.stream_chunks:
+            chunks = list(turn.stream_chunks)
+        elif self._scripted_turns or self.generate_content != "fake completion":
+            content = turn.content or self.generate_content or "Hello world"
+            if " " in content:
+                parts = content.split(" ")
+                chunks = []
+                for i, part in enumerate(parts):
+                    chunks.append(part)
+                    if i < len(parts) - 1:
+                        chunks.append(" ")
+            elif len(content) > 1:
+                # Short single-token replies still emit progressive character chunks.
+                mid = max(1, len(content) // 2)
+                chunks = [content[:mid], content[mid:]]
+            else:
+                chunks = [content] if content else []
+        else:
+            # Backward-compatible default used by Phase 2/5 stream tests.
+            chunks = ["Hello", " ", "world"]
+
+        assembled = ""
+        try:
+            for token in chunks:
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    self.stream_cancelled = True
+                    raise asyncio.CancelledError()
+                if self.stream_delay_seconds > 0:
+                    await asyncio.sleep(self.stream_delay_seconds)
+                assembled += token
+                yield StreamEvent(event=StreamEventType.delta, data={"content": token})
+        except asyncio.CancelledError:
+            self.stream_cancelled = True
+            raise
+
         yield StreamEvent(
             event=StreamEventType.complete,
             data={
                 "provider": self.name,
                 "model": model,
-                "content": "Hello world",
-                "finish_reason": "stop",
+                "content": assembled,
+                "finish_reason": turn.finish_reason or "stop",
                 "latency_ms": 2.0,
                 "usage": {
                     "prompt_tokens": 3,

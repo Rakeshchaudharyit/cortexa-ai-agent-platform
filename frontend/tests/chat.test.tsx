@@ -750,6 +750,7 @@ describe("MessageList", () => {
           userMessageId: "u1",
           assistantMessageId: "ast-temp",
           toolActivity: [],
+          statusLabel: null,
         }}
       />,
     );
@@ -762,6 +763,242 @@ describe("MessageList", () => {
       <MessageList messages={[]} streaming={null} error="Something went wrong" />,
     );
     expect(screen.getByTestId("messages-error")).toBeTruthy();
+  });
+
+  it("shows preparing response state before first token", () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Preparing response…",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("preparing-response")).toBeTruthy();
+    expect(screen.getByTestId("preparing-response").textContent).toContain(
+      "Preparing response",
+    );
+    expect(screen.queryByLabelText("Streaming")).toBeNull();
+  });
+
+  it("replaces preparing state when first token arrives", () => {
+    const { rerender } = render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Connecting to local model…",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("preparing-response")).toBeTruthy();
+    rerender(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "Hello",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: null,
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("preparing-response")).toBeNull();
+    expect(screen.getByLabelText("Streaming")).toBeTruthy();
+    expect(screen.getByTestId("message-list").textContent).toContain("Hello");
+  });
+
+  it("appends multiple token chunks progressively", () => {
+    const { rerender } = render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "Hello",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: null,
+        }}
+      />,
+    );
+    rerender(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "Hello world",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: null,
+        }}
+      />,
+    );
+    expect(screen.getByTestId("message-list").textContent).toContain("Hello world");
+  });
+
+  it("does not leave a permanent empty assistant bubble", () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Generating response…",
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("message-streaming-assistant")).toBeNull();
+    expect(screen.getByTestId("preparing-response")).toBeTruthy();
+  });
+
+  it("renders safe timeout error banner text via chat error prop", () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={null}
+        error="Timed out waiting for the first model token"
+      />,
+    );
+    expect(screen.getByTestId("messages-error").textContent).toContain("Timed out");
+  });
+});
+
+describe("Chat cancellation UX", () => {
+  it("cancel button restores send affordance when streaming ends", () => {
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <ChatComposer onSend={vi.fn()} isStreaming onCancel={onCancel} />,
+    );
+    expect(screen.getByTestId("cancel-stream-button")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("cancel-stream-button"));
+    expect(onCancel).toHaveBeenCalled();
+    rerender(<ChatComposer onSend={vi.fn()} isStreaming={false} onCancel={onCancel} />);
+    expect(screen.queryByTestId("cancel-stream-button")).toBeNull();
+    expect(screen.getByTestId("send-button")).toBeTruthy();
+  });
+});
+
+describe("RAG citation + stream contract UX", () => {
+  it("shows Searching selected documents progress immediately", () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Searching selected documents…",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("preparing-response").textContent).toContain(
+      "Searching selected documents",
+    );
+  });
+
+  it("shows retrieval-complete and generating progress before first token", () => {
+    const { rerender } = render(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Found 2 relevant passages",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("preparing-response").textContent).toContain("Found 2");
+    rerender(
+      <MessageList
+        messages={[]}
+        streaming={{
+          content: "",
+          citations: [],
+          userMessageId: "u1",
+          assistantMessageId: "a1",
+          toolActivity: [],
+          statusLabel: "Generating grounded answer…",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("preparing-response").textContent).toContain(
+      "Generating grounded answer",
+    );
+  });
+
+  it("renders [1] not [undefined] for live citations missing citation_index", () => {
+    // Legacy SSE shape used citation_id only — must still display [1].
+    const legacy = {
+      id: "live-1",
+      citation_id: "[1]",
+      filename: "cortexa-rag-test.txt",
+      excerpt: "Project codename: ORBIT-LANTERN-92.",
+      chunk_index: 0,
+      document_id: null,
+      chunk_id: null,
+      page_number: null,
+      similarity_score: null,
+    } as unknown as MessageCitation;
+    render(<CitationCard citation={legacy} />);
+    expect(screen.getByTestId("citation-card-1").textContent).toContain("[1]");
+    expect(screen.getByTestId("citation-card-1").textContent).not.toContain("undefined");
+    expect(screen.getByTestId("citation-card-1").textContent).toContain("cortexa-rag-test.txt");
+    // Filename once
+    expect(
+      screen.getByTestId("citation-card-1").textContent!.split("cortexa-rag-test.txt").length - 1,
+    ).toBe(1);
+  });
+
+  it("does not print citation metadata in answer prose for grounded message", () => {
+    const msg = sampleMessage({
+      role: "assistant",
+      content: "The project codename is **ORBIT-LANTERN-92**. [1]",
+      citations: [sampleCitation()],
+    });
+    render(<MessageBubble message={msg} />);
+    expect(screen.getByTestId(`message-${msg.id}`).textContent).toContain("ORBIT-LANTERN-92");
+    expect(screen.getByTestId(`message-${msg.id}`).textContent).not.toContain("Citation ID");
+    expect(screen.getByTestId("citations-list")).toBeTruthy();
+  });
+
+  it("no-context answer renders without citation cards", () => {
+    const msg = sampleMessage({
+      role: "assistant",
+      content:
+        "I couldn’t find that information in the selected documents. Try choosing different documents or switch to General Agent mode.",
+      citations: [],
+      grounded: false,
+    });
+    render(<MessageBubble message={msg} />);
+    expect(screen.queryByTestId("citations-list")).toBeNull();
+  });
+
+  it("complete clears Stop affordance", () => {
+    const { rerender } = render(<ChatComposer onSend={vi.fn()} isStreaming />);
+    expect(screen.getByTestId("cancel-stream-button")).toBeTruthy();
+    rerender(<ChatComposer onSend={vi.fn()} isStreaming={false} />);
+    expect(screen.queryByTestId("cancel-stream-button")).toBeNull();
   });
 });
 

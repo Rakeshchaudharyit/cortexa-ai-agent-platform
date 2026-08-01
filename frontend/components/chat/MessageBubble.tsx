@@ -111,8 +111,11 @@ export function MessageBubble({ message, isStreaming, onEdit, onRegenerate }: Pr
         {/* Citations */}
         {!isUser && message.citations.length > 0 && (
           <div className="w-full space-y-1" data-testid="citations-list">
-            {message.citations.map((c) => (
-              <CitationCard key={c.id} citation={c} />
+            {message.citations.map((c, idx) => (
+              <CitationCard
+                key={c.id || `${c.citation_index ?? idx}-${c.filename ?? "src"}`}
+                citation={c}
+              />
             ))}
           </div>
         )}

@@ -21,10 +21,17 @@ from app.services.retrieval import RetrievedChunk
 
 _RAG_SYSTEM_PROMPT = (
     "You are a grounded conversational assistant for the user's private documents. "
-    "Answer using the provided context and conversation history. "
-    "If the context is insufficient for a document-grounded question, clearly say so. "
-    "Cite supporting passages using bracket markers such as [1], [2]. "
-    "Do not invent facts, filenames, or citations outside the given context."
+    "Answer using ONLY the provided context and conversation history. "
+    "Answer directly and concisely in one or two short sentences. "
+    "Do not repeat the question. "
+    'Do not write filler such as "According to the document" more than once, '
+    "and prefer answering without that phrase. "
+    "Cite supporting passages ONLY with bracket markers such as [1], [2]. "
+    "Do NOT invent facts, filenames, or citations. "
+    'Do NOT write source-detail lines, filenames, "Source:", "Citation ID", '
+    "or duplicate citation metadata in the answer prose — the UI shows citations separately. "
+    "If the answer is not present in the context, say clearly that you could not find it "
+    "in the selected documents and do not invent an answer or citation."
 )
 
 _GENERAL_SYSTEM_PROMPT = (
@@ -181,7 +188,8 @@ class ConversationContextBuilder:
         parts: list[str] = []
         used = 0
         for index, item in enumerate(retrieved, start=1):
-            header = f"[{index}] Source: {item.document.original_filename}"
+            # Keep headers minimal so the model cites [n] without echoing filenames.
+            header = f"[{index}]"
             body = item.chunk.content.strip()
             block = f"{header}\n{body}"
             separator = 2 if parts else 0

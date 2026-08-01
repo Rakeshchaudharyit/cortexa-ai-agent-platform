@@ -18,6 +18,7 @@ def test_agent_tools_migration_revision_chain() -> None:
     rev = revisions["0007_agent_tools"]
     assert rev.down_revision == "0006_database_identity"
     heads = set(script.get_heads())
-    assert heads == {"0009_enterprise_admin"}
+    assert heads == {"0010_admin_deletion_controls"}
     assert revisions["0008_long_term_memory"].down_revision == "0007_agent_tools"
     assert revisions["0009_enterprise_admin"].down_revision == "0008_long_term_memory"
+    assert revisions["0010_admin_deletion_controls"].down_revision == "0009_enterprise_admin"

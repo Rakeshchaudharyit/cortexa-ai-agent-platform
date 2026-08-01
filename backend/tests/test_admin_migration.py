@@ -17,5 +17,8 @@ def test_enterprise_admin_migration_revision_chain() -> None:
     assert "0009_enterprise_admin" in revisions
     rev = revisions["0009_enterprise_admin"]
     assert rev.down_revision == "0008_long_term_memory"
+    assert "0010_admin_deletion_controls" in revisions
+    rev10 = revisions["0010_admin_deletion_controls"]
+    assert rev10.down_revision == "0009_enterprise_admin"
     heads = set(script.get_heads())
-    assert heads == {"0009_enterprise_admin"}
+    assert heads == {"0010_admin_deletion_controls"}

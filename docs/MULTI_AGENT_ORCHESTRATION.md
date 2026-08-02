@@ -109,9 +109,10 @@ Execution contract schemas: `AgentExecutionInput` / `AgentExecutionResult` in
 
 - `MultiAgentService` (`agents/multi_agent.py`) + `MULTI_AGENT_ENABLED`
 - Wired on app state and optionally on `ChatService`
-- Phase 9.2 tests call the coordinator / service directly
 - Existing simple chat and streaming paths remain the default for ordinary turns
-- Auto public multi-agent progress streaming is **not** enabled yet
+- Complex chat SSE turns create a durable run, stream safe lifecycle events, use
+  `delta` as the only text event, and emit `complete` exactly once
+- Final metadata includes `agent_run_id`; one user and one assistant message are persisted
 
 ### Fake provider support
 
@@ -121,26 +122,24 @@ safety allow/block, specialist responses, timeouts, and malformed JSON via
 
 ---
 
-## Limitations (Phase 9.2)
+## Phase 9.3 APIs and lifecycle
 
-- No public agent-run APIs
-- No public approval or cancellation endpoints
-- No SSE multi-agent progress events to the frontend
-- No `/agent-runs` UI, approval UI, or admin agents UI
-- Limited read-only parallelism disabled
-- Chat does not blindly route all production traffic through multi-agent
-- Approval-required memory writes are represented internally only
+- Owned user APIs: `GET /api/v1/agents`, agent-run list/detail/tasks/events,
+  owner-only cancellation, and approval list/detail/approve/reject endpoints
+- Foreign run and approval identifiers return the same safe 404 as missing resources
+- Approval gates are durable, idempotent, expiry-aware, and stop dependent execution
+- Cancellation is owner-only and terminal-safe; pending/ready/active tasks are cancelled
+- Startup recovery leaves approvals and terminal runs unchanged and marks stale active
+  runs failed under the bounded `fail_interrupted` policy
+- Admin APIs expose safe operational summaries and bounded registry overrides only;
+  Coordinator and Safety cannot be disabled and prompt/class-path editing is unavailable
 
 ---
 
-## Phase 9.3 — Pending
+## Phase 9.4 — Not implemented
 
-- Agent-run public APIs and ownership-scoped listing
-- Approval public APIs and resolution flow
-- Cancel endpoint
-- SSE multi-agent event stream compatible with existing chat SSE
-- Frontend agent-run pages and approval UI
-- Admin agents / agent-runs pages
+- No `/agent-runs` UI, approval cards, plan/task UI, or admin agent pages
+- Limited read-only parallelism remains disabled by default
 
 ---
 

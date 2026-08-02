@@ -275,6 +275,15 @@ Optional UUID on `CreateMessageRequest` and `RegenerateRequest`. Unique per `(us
 
 See `.env.example` for `CONVERSATION_*`, `CHAT_*`, and related RAG limits.
 
+## Complex chat SSE (Phase 9.3)
+
+Ordinary requests keep the existing progressive single-agent stream and do not create
+an `AgentRun`. Deterministically complex requests use the coordinator and add safe
+run/plan/task/handoff/approval lifecycle events. `delta` remains the canonical text
+event, `complete` is emitted once, and final metadata includes `agent_run_id`.
+Persisted public events never include full prompts, document passages, memory content,
+provider payloads, embeddings, secrets, stack traces, or hidden reasoning.
+
 ---
 
 ## Known limitations

@@ -132,6 +132,17 @@ Admin lists minimize sensitive content:
 - Storage cleanup after DB commit is best-effort; failures are audited for operational follow-up
 - No unrestricted table-purge or audit-log deletion
 
+## Phase 9.3 agent administration APIs
+
+Administrators can inspect safe agent definitions and run telemetry through
+`GET /api/v1/admin/agents`, `GET /api/v1/admin/agents/{agent_key}`,
+`GET /api/v1/admin/agent-runs`, and run detail. `PATCH /api/v1/admin/agents/{agent_key}`
+only accepts bounded enablement, timeout, maximum-step, and tool-restriction changes.
+Tool restrictions cannot expand the server allow-list, Coordinator and Safety cannot
+be disabled, and every successful change is audited. Admin run responses redact the
+user request and exclude prompts, passages, memory content, and provider payloads.
+No admin agent frontend page is included in Phase 9.3.
+
 ## Testing
 
 Backend: `backend/tests/test_admin_api.py`, `backend/tests/test_admin_deletion.py` (login events, impact, self/last-admin, deactivate, permanent delete + cleanup, authz).

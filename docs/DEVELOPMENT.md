@@ -306,7 +306,21 @@ Full details: [CONVERSATIONS.md](CONVERSATIONS.md).
 
 ---
 
-## Current Limitations (Phase 8)
+## Phase 9.3 backend development
+
+Multi-agent user/admin APIs and complex chat SSE orchestration are backend-only.
+There are intentionally no Phase 9 frontend pages. Recovery is controlled by
+`AGENT_STALE_RUN_RECOVERY_ENABLED`, `AGENT_STALE_RUN_AFTER_SECONDS`, and the only
+supported policy, `AGENT_STALE_RUN_POLICY=fail_interrupted`. Startup recovery never
+replays completed tasks and preserves approval waits and terminal runs.
+
+Focused checks:
+
+```bash
+cd backend && pytest tests/test_agent_runs.py tests/test_coordinator_engine.py tests/test_agent_api.py
+```
+
+## Current Limitations (Phase 9.3)
 
 - Billing, Stripe, OAuth, Gmail/Calendar, Slack/Teams are not implemented
 - Background agents, scheduled workflows, and voice are not implemented

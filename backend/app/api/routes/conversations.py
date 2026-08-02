@@ -313,6 +313,14 @@ async def stream_message(
                     await disconnect_task
                 except asyncio.CancelledError:
                     pass
+            # Streaming responses can finish because the client disconnect
+            # watcher wins immediately after the final event. Close the service
+            # generator and end any read transaction it opened while serializing
+            # the final message before the request-scoped session is released.
+            try:
+                await _aclose_agen(agen)
+            finally:
+                await session.rollback()
 
     return StreamingResponse(
         event_stream(),

@@ -289,3 +289,72 @@ class AgentRunEventSummary(BaseModel):
     task_id: str | None = None
     safe_metadata: dict[str, Any] | None = None
     created_at: str
+
+
+class AgentDefinitionListResponse(BaseModel):
+    items: list[AgentDefinitionView]
+    total: int
+
+
+class AgentRunListResponse(BaseModel):
+    items: list[AgentRunSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AgentRunDetailResponse(AgentRunSummary):
+    conversation_id: str | None = None
+    tasks: list[AgentTaskSummary] = Field(default_factory=list)
+    approvals: list[AgentApprovalSummary] = Field(default_factory=list)
+    events: list[AgentRunEventSummary] = Field(default_factory=list)
+
+
+class AgentTaskListResponse(BaseModel):
+    items: list[AgentTaskSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AgentEventListResponse(BaseModel):
+    items: list[AgentRunEventSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AgentApprovalListResponse(BaseModel):
+    items: list[AgentApprovalSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AgentApprovalResolutionRequest(BaseModel):
+    resolution_note: str | None = Field(default=None, max_length=500)
+
+
+class AdminAgentUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    timeout_seconds: int | None = Field(default=None, ge=5, le=600)
+    maximum_steps: int | None = Field(default=None, ge=1, le=32)
+    allowed_tools: list[str] | None = Field(default=None, max_length=32)
+
+
+class AdminAgentRunSummary(AgentRunSummary):
+    user_id: str
+    conversation_id: str | None = None
+
+
+class AdminAgentRunListResponse(BaseModel):
+    items: list[AdminAgentRunSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminAgentRunDetailResponse(AdminAgentRunSummary):
+    tasks: list[AgentTaskSummary] = Field(default_factory=list)
+    approvals: list[AgentApprovalSummary] = Field(default_factory=list)
+    events: list[AgentRunEventSummary] = Field(default_factory=list)

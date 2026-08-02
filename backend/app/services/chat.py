@@ -345,6 +345,7 @@ class ChatService:
             top_k=request.top_k,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            client_request_id=request.client_request_id,
         ):
             yield event
 
@@ -622,6 +623,7 @@ class ChatService:
             data={"content": assistant.content},
         )
         response = message_to_response(assistant)
+        agent_run_id = (assistant.message_metadata or {}).get("agent_run_id")
         for citation in response.citations:
             yield StreamEvent(
                 event=StreamEventType.citation,
@@ -636,11 +638,15 @@ class ChatService:
                 "completion_tokens": assistant.completion_tokens,
                 "total_tokens": assistant.total_tokens,
                 "latency_ms": assistant.latency_ms,
+                **({"agent_run_id": agent_run_id} if agent_run_id else {}),
             },
         )
         yield StreamEvent(
             event=StreamEventType.complete,
-            data={"message": response.model_dump(mode="json")},
+            data={
+                "message": response.model_dump(mode="json"),
+                **({"agent_run_id": agent_run_id} if agent_run_id else {}),
+            },
         )
 
     async def _resolve_retrieval(
@@ -1019,6 +1025,7 @@ class ChatService:
         top_k: int | None,
         temperature: float | None,
         max_tokens: int | None,
+        client_request_id: uuid.UUID | None = None,
     ) -> AsyncIterator[StreamEvent]:
         request_id = request_id_ctx.get() or "-"
         started = time.perf_counter()
@@ -1103,6 +1110,20 @@ class ChatService:
                     retrieved_chunk_count=0,
                 )
 
+        preliminary_decision = None
+        if self.multi_agent_enabled and self.multi_agent_service is not None:
+            preliminary_decision = await self.multi_agent_service.classify(
+                user_message=user_message.content,
+                conversation_mode=resolve_conversation_mode(document_ids),
+                selected_document_ids=document_ids,
+                memory_enabled=bool(conversation.memory_enabled_override is not False),
+                conversation_context_summary=conversation.summary,
+            )
+        defer_persistent_writes = bool(
+            preliminary_decision is not None
+            and self.multi_agent_service is not None
+            and self.multi_agent_service.should_use_multi_agent(preliminary_decision)
+        )
         memory_turn = await prepare_memory_for_turn(
             session=session,
             user=user,
@@ -1111,6 +1132,7 @@ class ChatService:
             user_message_id=user_message.id,
             memory_service=self.memory_service,
             memory_retriever=self.memory_retriever,
+            defer_persistent_writes=defer_persistent_writes,
         )
         for event in memory_turn.events:
             yield event
@@ -1240,6 +1262,208 @@ class ChatService:
             if max_tokens is not None
             else self.settings.message_max_response_tokens,
         )
+
+        # Phase 9.3: classify before entering the existing streaming agent path.
+        # Simple requests continue below unchanged and retain provider token streaming.
+        if self.multi_agent_enabled and self.multi_agent_service is not None:
+            conversation_mode = resolve_conversation_mode(document_ids)
+            selection = await self._select_tools_for_turn(
+                session=session,
+                user=user,
+                user_content=user_message.content,
+                document_ids=document_ids,
+                memory_enabled=memory_turn.memory_enabled,
+                has_accessible_documents=bool(retrieved),
+            )
+            decision = preliminary_decision or await self.multi_agent_service.classify(
+                user_message=user_message.content,
+                conversation_mode=conversation_mode,
+                selected_document_ids=document_ids,
+                memory_enabled=memory_turn.memory_enabled,
+                selected_tool_intent=selection.selected_tool_names,
+                conversation_context_summary=conversation.summary,
+            )
+            if self.multi_agent_service.should_use_multi_agent(decision):
+                from app.agents.api import safe_metadata
+
+                history_payload = [
+                    {"role": item.role.value, "content": item.content[:2000]}
+                    for item in history[-self.settings.conversation_max_history_messages :]
+                ]
+                event_queue: asyncio.Queue[StreamEvent] = asyncio.Queue()
+
+                async def on_agent_event(
+                    run_id: uuid.UUID,
+                    event_type: str,
+                    agent_key: str | None,
+                    task_id: uuid.UUID | None,
+                    metadata: dict[str, object],
+                ) -> None:
+                    # Checkpoint state before exposing it. This makes the run
+                    # visible to the owner-only cancel API while it is active.
+                    await session.commit()
+                    try:
+                        stream_type = StreamEventType(event_type)
+                    except ValueError:
+                        return
+                    clean = safe_metadata(metadata)
+                    await event_queue.put(
+                        StreamEvent(
+                            event=stream_type,
+                            data={
+                                "agent_run_id": str(run_id),
+                                "agent_key": agent_key,
+                                "task_id": str(task_id) if task_id else None,
+                                **(clean if isinstance(clean, dict) else {}),
+                            },
+                        )
+                    )
+
+                execution_task = asyncio.create_task(
+                    self.multi_agent_service.execute(
+                        session,
+                        user=user,
+                        user_message=user_message.content,
+                        conversation_id=conversation.id,
+                        conversation_mode=conversation_mode,
+                        selected_document_ids=document_ids,
+                        memory_enabled=memory_turn.memory_enabled,
+                        selected_tool_intent=selection.selected_tool_names,
+                        conversation_summary=conversation.summary,
+                        selected_history=history_payload,
+                        memory_context=[
+                            item.model_dump(mode="json") for item in memory_turn.retrieved
+                        ],
+                        document_context=[],
+                        correlation_id=str(client_request_id or assistant.id),
+                        enabled_tool_names=frozenset(selection.selected_tool_names),
+                        event_callback=on_agent_event,
+                    ),
+                    name=f"multi-agent-run-{assistant.id}",
+                )
+                try:
+                    while not execution_task.done() or not event_queue.empty():
+                        if not event_queue.empty():
+                            yield event_queue.get_nowait()
+                            continue
+                        next_event = asyncio.create_task(event_queue.get())
+                        done, _pending = await asyncio.wait(
+                            {execution_task, next_event},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if next_event in done:
+                            yield next_event.result()
+                        else:
+                            next_event.cancel()
+                            try:
+                                await next_event
+                            except asyncio.CancelledError:
+                                pass
+                    result = await execution_task
+                except asyncio.CancelledError:
+                    execution_task.cancel()
+                    try:
+                        await execution_task
+                    except asyncio.CancelledError:
+                        pass
+                    await session.rollback()
+                    if not assistant.content.strip():
+                        await self.message_service.discard_empty_assistant(session, assistant)
+                    await session.commit()
+                    raise
+                await session.commit()
+                if result.run is None:
+                    await self.message_service.fail_assistant(
+                        session, assistant, error_code="agent_run_missing"
+                    )
+                    await session.commit()
+                    yield StreamEvent(
+                        event=StreamEventType.error,
+                        data={
+                            "error": {
+                                "code": "agent_run_missing",
+                                "message": "Multi-agent execution failed",
+                            }
+                        },
+                    )
+                    return
+                if result.error_code:
+                    await self.message_service.fail_assistant(
+                        session, assistant, error_code=result.error_code
+                    )
+                    await session.commit()
+                    yield StreamEvent(
+                        event=StreamEventType.error,
+                        data={
+                            "agent_run_id": str(result.run.id),
+                            "error": {
+                                "code": result.error_code,
+                                "message": result.safe_error_message
+                                or "Multi-agent execution failed",
+                            },
+                        },
+                    )
+                    return
+                content = result.final_content.strip()
+                if result.approval_required and not content:
+                    content = (
+                        "Your approval is required before I can complete " "the requested action."
+                    )
+                if not content:
+                    await self.message_service.fail_assistant(
+                        session, assistant, error_code="empty_assistant_response"
+                    )
+                    await session.commit()
+                    yield StreamEvent(
+                        event=StreamEventType.error,
+                        data={
+                            "agent_run_id": str(result.run.id),
+                            "error": {
+                                "code": "empty_assistant_response",
+                                "message": "The agents returned an empty response",
+                            },
+                        },
+                    )
+                    return
+                latency_ms = round((time.perf_counter() - started) * 1000, 2)
+                assistant.message_metadata = {
+                    **(assistant.message_metadata or {}),
+                    "agent_run_id": str(result.run.id),
+                    "execution_mode": "multi_agent",
+                }
+                finalized = await self.message_service.finalize_assistant(
+                    session,
+                    assistant,
+                    content=content,
+                    grounded=True if citations else (None if general_mode else False),
+                    model=self.llm_service.provider.default_model,
+                    provider=self.llm_service.provider.name,
+                    prompt_tokens=None,
+                    completion_tokens=None,
+                    total_tokens=None,
+                    latency_ms=latency_ms,
+                    finish_reason=("approval_required" if result.approval_required else "stop"),
+                    citations=citations,
+                )
+                await session.commit()
+                yield StreamEvent(event=StreamEventType.delta, data={"content": content})
+                yield StreamEvent(
+                    event=StreamEventType.metadata,
+                    data={
+                        "agent_run_id": str(result.run.id),
+                        "execution_mode": "multi_agent",
+                        "approval_required": result.approval_required,
+                        "latency_ms": latency_ms,
+                    },
+                )
+                yield StreamEvent(
+                    event=StreamEventType.complete,
+                    data={
+                        "agent_run_id": str(result.run.id),
+                        "message": message_to_response(finalized).model_dump(mode="json"),
+                    },
+                )
+                return
 
         if not general_mode and retrieved:
             yield self._progress_event(
@@ -1613,6 +1837,7 @@ class ChatService:
                 await self._maybe_update_summary(session, conversation, user)
                 await session.commit()
             except Exception:
+                await session.rollback()
                 logger.exception(
                     "stream_post_complete_failed conversation_id=%s message_id=%s " "request_id=%s",
                     conversation.id,
@@ -1816,6 +2041,7 @@ class ChatService:
             await self._maybe_update_summary(session, conversation, user)
             await session.commit()
         except Exception:
+            await session.rollback()
             logger.exception(
                 "stream_post_complete_failed conversation_id=%s message_id=%s request_id=%s",
                 conversation.id,

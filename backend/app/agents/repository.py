@@ -167,6 +167,7 @@ class AgentRunRepository:
         rows = await session.scalars(
             select(AgentRun)
             .where(where)
+            .options(selectinload(AgentRun.tasks))
             .order_by(AgentRun.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -188,7 +189,10 @@ class AgentRunRepository:
             count_stmt = count_stmt.where(AgentRun.status == status)
         total = await session.scalar(count_stmt) or 0
         rows = await session.scalars(
-            stmt.order_by(AgentRun.created_at.desc()).limit(limit).offset(offset)
+            stmt.options(selectinload(AgentRun.tasks))
+            .order_by(AgentRun.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         return list(rows), int(total)
 
@@ -427,6 +431,54 @@ class AgentRunRepository:
             .offset(offset)
         )
         return list(rows), int(total)
+
+    async def list_tasks(
+        self,
+        session: AsyncSession,
+        run: AgentRun,
+        *,
+        status: AgentTaskStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[AgentTask], int]:
+        stmt = select(AgentTask).where(AgentTask.agent_run_id == run.id)
+        count_stmt = (
+            select(func.count()).select_from(AgentTask).where(AgentTask.agent_run_id == run.id)
+        )
+        if status is not None:
+            stmt = stmt.where(AgentTask.status == status)
+            count_stmt = count_stmt.where(AgentTask.status == status)
+        total = int(await session.scalar(count_stmt) or 0)
+        rows = await session.scalars(
+            stmt.order_by(AgentTask.sequence.asc()).limit(limit).offset(offset)
+        )
+        return list(rows), total
+
+    async def list_events(
+        self,
+        session: AsyncSession,
+        run: AgentRun,
+        *,
+        event_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[AgentRunEvent], int]:
+        stmt = select(AgentRunEvent).where(AgentRunEvent.agent_run_id == run.id)
+        count_stmt = (
+            select(func.count())
+            .select_from(AgentRunEvent)
+            .where(AgentRunEvent.agent_run_id == run.id)
+        )
+        if event_type:
+            stmt = stmt.where(AgentRunEvent.event_type == event_type)
+            count_stmt = count_stmt.where(AgentRunEvent.event_type == event_type)
+        total = int(await session.scalar(count_stmt) or 0)
+        rows = await session.scalars(
+            stmt.order_by(AgentRunEvent.created_at.asc(), AgentRunEvent.id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(rows), total
 
     async def resolve_approval(
         self,

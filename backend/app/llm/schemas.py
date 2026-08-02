@@ -196,6 +196,24 @@ class StreamEventType(str, Enum):
     memory_archived = "memory_archived"
     memory_deleted = "memory_deleted"
     memory_action_failed = "memory_action_failed"
+    # Phase 9 multi-agent lifecycle. Payloads contain safe summaries only.
+    run_started = "run_started"
+    complexity_classified = "complexity_classified"
+    planning_started = "planning_started"
+    plan_created = "plan_created"
+    safety_checked = "safety_checked"
+    task_ready = "task_ready"
+    task_started = "task_started"
+    task_completed = "task_completed"
+    task_failed = "task_failed"
+    task_skipped = "task_skipped"
+    handoff = "handoff"
+    approval_required = "approval_required"
+    approval_resolved = "approval_resolved"
+    run_cancelled = "run_cancelled"
+    run_completed = "run_completed"
+    run_failed = "run_failed"
+    run_timed_out = "run_timed_out"
 
 
 class StreamEvent(BaseModel):

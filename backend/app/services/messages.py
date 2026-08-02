@@ -266,6 +266,22 @@ class MessageService:
             await self.conversation_service.refresh_counters(session, conversation)
         return message
 
+    async def discard_empty_assistant(
+        self,
+        session: AsyncSession,
+        message: Message,
+    ) -> None:
+        """Remove an unstarted cancelled assistant so no blank response persists."""
+        if message.role != MessageRole.assistant or message.content.strip():
+            return
+        conversation = await session.scalar(
+            select(Conversation).where(Conversation.id == message.conversation_id)
+        )
+        await session.delete(message)
+        await session.flush()
+        if conversation is not None:
+            await self.conversation_service.refresh_counters(session, conversation)
+
     async def persist_citations(
         self,
         session: AsyncSession,

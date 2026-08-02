@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select
@@ -79,6 +79,23 @@ class AgentRunRepository:
         await session.flush()
         return run
 
+    async def get_by_correlation(
+        self,
+        session: AsyncSession,
+        *,
+        user: User,
+        conversation_id: uuid.UUID | None,
+        correlation_id: str,
+    ) -> AgentRun | None:
+        """Return an existing owned run for chat request idempotency."""
+        stmt = select(AgentRun).where(
+            AgentRun.user_id == user.id,
+            AgentRun.conversation_id == conversation_id,
+            AgentRun.correlation_id == correlation_id,
+        )
+        result = await session.scalar(stmt)
+        return result if isinstance(result, AgentRun) else None
+
     async def get_owned(
         self,
         session: AsyncSession,
@@ -86,6 +103,7 @@ class AgentRunRepository:
         run_id: uuid.UUID,
         *,
         with_details: bool = False,
+        for_update: bool = False,
     ) -> AgentRun | None:
         stmt = select(AgentRun).where(AgentRun.id == run_id, AgentRun.user_id == user.id)
         if with_details:
@@ -95,6 +113,8 @@ class AgentRunRepository:
                 selectinload(AgentRun.approvals),
                 selectinload(AgentRun.handoffs),
             )
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await session.scalar(stmt)
         return result if isinstance(result, AgentRun) else None
 
@@ -371,13 +391,16 @@ class AgentRunRepository:
         session: AsyncSession,
         user: User,
         approval_id: uuid.UUID,
+        *,
+        for_update: bool = False,
     ) -> AgentApproval | None:
-        result = await session.scalar(
-            select(AgentApproval).where(
-                AgentApproval.id == approval_id,
-                AgentApproval.user_id == user.id,
-            )
+        stmt = select(AgentApproval).where(
+            AgentApproval.id == approval_id,
+            AgentApproval.user_id == user.id,
         )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await session.scalar(stmt)
         return result if isinstance(result, AgentApproval) else None
 
     async def list_owned_approvals(
@@ -472,3 +495,43 @@ class AgentRunRepository:
                 await self.transition_task(session, task, AgentTaskStatus.cancelled)
                 cancelled += 1
         return cancelled
+
+    async def recover_stale_runs(self, session: AsyncSession) -> int:
+        """Fail interrupted active runs; approval waits and terminals survive restart."""
+        if not self.settings.agent_stale_run_recovery_enabled:
+            return 0
+        cutoff = _utcnow() - timedelta(seconds=self.settings.agent_stale_run_after_seconds)
+        rows = await session.scalars(
+            select(AgentRun).where(
+                AgentRun.status.in_(
+                    [
+                        AgentRunStatus.pending,
+                        AgentRunStatus.planning,
+                        AgentRunStatus.running,
+                    ]
+                ),
+                AgentRun.updated_at < cutoff,
+            )
+        )
+        recovered = 0
+        for run in rows:
+            await self.cancel_queued_tasks(session, run)
+            await self.transition_run(
+                session,
+                run,
+                AgentRunStatus.failed,
+                error_code="agent_run_interrupted",
+                safe_error_message="Agent run was interrupted before completion",
+            )
+            await self.add_event(
+                session,
+                run=run,
+                event_type="run_failed",
+                agent_key="coordinator",
+                safe_metadata={
+                    "error_code": "agent_run_interrupted",
+                    "recovery_policy": "fail_interrupted",
+                },
+            )
+            recovered += 1
+        return recovered

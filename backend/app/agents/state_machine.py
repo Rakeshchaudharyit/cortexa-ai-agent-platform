@@ -78,6 +78,7 @@ AGENT_TASK_TRANSITIONS: dict[AgentTaskStatus, frozenset[AgentTaskStatus]] = {
     AgentTaskStatus.awaiting_approval: frozenset(
         {
             AgentTaskStatus.running,
+            AgentTaskStatus.succeeded,
             AgentTaskStatus.skipped,
             AgentTaskStatus.cancelled,
             AgentTaskStatus.failed,

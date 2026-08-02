@@ -565,6 +565,21 @@ class Settings(BaseSettings):
         le=4,
         alias="AGENT_MAX_PARALLEL_READ_TASKS",
     )
+    agent_stale_run_recovery_enabled: bool = Field(
+        default=True,
+        alias="AGENT_STALE_RUN_RECOVERY_ENABLED",
+    )
+    agent_stale_run_after_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=86_400,
+        alias="AGENT_STALE_RUN_AFTER_SECONDS",
+    )
+    agent_stale_run_policy: str = Field(
+        default="fail_interrupted",
+        alias="AGENT_STALE_RUN_POLICY",
+        pattern="^fail_interrupted$",
+    )
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

@@ -49,6 +49,7 @@ async def prepare_memory_for_turn(
     user_message_id: uuid.UUID | None,
     memory_service: MemoryService | None,
     memory_retriever: MemoryRetriever | None,
+    defer_persistent_writes: bool = False,
 ) -> MemoryTurnResult:
     result = MemoryTurnResult()
     if memory_service is None or not memory_service.settings.memory_enabled:
@@ -86,7 +87,7 @@ async def prepare_memory_for_turn(
         result.memory_enabled = False
         return result
 
-    if intent.kind == MemoryIntentKind.remember and intent.payload:
+    if not defer_persistent_writes and intent.kind == MemoryIntentKind.remember and intent.payload:
         try:
             memory = await memory_service.remember_explicit(
                 session,
@@ -148,7 +149,7 @@ async def prepare_memory_for_turn(
             result.short_circuit_reply = "I couldn’t save that memory right now."
         return result
 
-    if intent.kind == MemoryIntentKind.forget and intent.payload:
+    if not defer_persistent_writes and intent.kind == MemoryIntentKind.forget and intent.payload:
         try:
             forgotten = await memory_service.forget_matching(
                 session,
@@ -179,7 +180,7 @@ async def prepare_memory_for_turn(
             result.short_circuit_reply = "I couldn’t forget that memory right now."
         return result
 
-    if intent.kind == MemoryIntentKind.update and intent.payload:
+    if not defer_persistent_writes and intent.kind == MemoryIntentKind.update and intent.payload:
         try:
             memory = await memory_service.remember_explicit(
                 session,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -53,6 +54,17 @@ class MultiAgentService:
             tool_executor=tool_executor,
             tool_registry=tool_registry,
         )
+        self._cancel_events: dict[UUID, asyncio.Event] = {}
+        self._active_tasks: dict[UUID, asyncio.Task[Any]] = {}
+
+    def request_cancel(self, run_id: UUID) -> None:
+        """Signal an active in-process coordinator/provider cancellation hook."""
+        event = self._cancel_events.get(run_id)
+        if event is not None:
+            event.set()
+        task = self._active_tasks.get(run_id)
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
 
     @property
     def enabled(self) -> bool:
@@ -106,7 +118,45 @@ class MultiAgentService:
         correlation_id: str = "",
         enabled_tool_names: frozenset[str] | None = None,
         cancel_check: Any | None = None,
+        event_callback: Any | None = None,
     ) -> CoordinatorResult:
+        if correlation_id:
+            existing = await self.repository.get_by_correlation(
+                session,
+                user=user,
+                conversation_id=conversation_id,
+                correlation_id=correlation_id,
+            )
+            if existing is not None:
+                return CoordinatorResult(
+                    execution_mode=existing.execution_mode.value,
+                    used_single_agent_fallback=False,
+                    run=existing,
+                    approval_required=existing.status.value == "awaiting_approval",
+                    error_code=existing.error_code,
+                    safe_error_message=existing.safe_error_message,
+                )
+        cancel_event = asyncio.Event()
+        active_run_id: UUID | None = None
+
+        def register_run(run_id: UUID) -> None:
+            nonlocal active_run_id
+            active_run_id = run_id
+            self._cancel_events[run_id] = cancel_event
+            current = asyncio.current_task()
+            if current is not None:
+                self._active_tasks[run_id] = current
+
+        async def combined_cancel_check() -> bool:
+            if cancel_event.is_set():
+                return True
+            if cancel_check is None:
+                return False
+            value = cancel_check()
+            if asyncio.iscoroutine(value):
+                value = await value
+            return bool(value)
+
         request = CoordinatorRequest(
             user=user,
             user_message=user_message,
@@ -122,9 +172,16 @@ class MultiAgentService:
             document_context=list(document_context or []),
             correlation_id=correlation_id,
             enabled_tool_names=enabled_tool_names or frozenset(),
-            cancel_check=cancel_check,
+            cancel_check=combined_cancel_check,
+            on_run_created=register_run,
+            event_callback=event_callback,
         )
-        result = await self.coordinator.execute(session, request)
+        try:
+            result = await self.coordinator.execute(session, request)
+        finally:
+            if active_run_id is not None:
+                self._cancel_events.pop(active_run_id, None)
+                self._active_tasks.pop(active_run_id, None)
         logger.info(
             "multi_agent_execute_finished correlation_id=%s execution_mode=%s "
             "fallback=%s error_code=%s",

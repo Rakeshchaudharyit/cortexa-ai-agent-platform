@@ -20,6 +20,7 @@ from app.agents.exceptions import (
     AgentLimitExceededError,
     AgentPlanValidationError,
     AgentSafetyError,
+    AgentStateTransitionError,
     AgentTimeoutError,
 )
 from app.agents.registry import AgentRegistry
@@ -82,6 +83,8 @@ class CoordinatorRequest:
     correlation_id: str = ""
     enabled_tool_names: frozenset[str] = field(default_factory=frozenset)
     cancel_check: Any | None = None
+    on_run_created: Any | None = None
+    event_callback: Any | None = None
 
 
 @dataclass
@@ -213,14 +216,20 @@ class CoordinatorEngine:
             execution_mode=AgentExecutionMode.multi_agent,
             maximum_steps=self.settings.agent_max_steps,
         )
-        await self.repository.add_event(
+        if request.on_run_created is not None:
+            registered = request.on_run_created(run.id)
+            if asyncio.iscoroutine(registered):
+                await registered
+        await self._add_event(
+            request,
             session,
             run=run,
             event_type="run_started",
             agent_key="coordinator",
             safe_metadata={"execution_mode": "multi_agent"},
         )
-        await self.repository.add_event(
+        await self._add_event(
+            request,
             session,
             run=run,
             event_type="complexity_classified",
@@ -243,8 +252,12 @@ class CoordinatorEngine:
         try:
             await self._raise_if_cancelled(request)
             await self.repository.transition_run(session, run, AgentRunStatus.planning)
-            await self.repository.add_event(
-                session, run=run, event_type="planning_started", agent_key="planning"
+            await self._add_event(
+                request,
+                session,
+                run=run,
+                event_type="planning_started",
+                agent_key="planning",
             )
             await self.repository.add_handoff(
                 session,
@@ -268,7 +281,8 @@ class CoordinatorEngine:
                 AgentRunStatus.running,
                 safe_plan_summary=plan.reasoning_summary,
             )
-            await self.repository.add_event(
+            await self._add_event(
+                request,
                 session,
                 run=run,
                 event_type="plan_created",
@@ -293,7 +307,8 @@ class CoordinatorEngine:
                 user_request=request.user_message,
                 enabled_tool_names=request.enabled_tool_names,
             )
-            await self.repository.add_event(
+            await self._add_event(
+                request,
                 session,
                 run=run,
                 event_type="safety_checked",
@@ -374,7 +389,8 @@ class CoordinatorEngine:
                         error_code="dependency_failed",
                         safe_error_message="A required prior task did not succeed",
                     )
-                    await self.repository.add_event(
+                    await self._add_event(
+                        request,
                         session,
                         run=run,
                         event_type="task_skipped",
@@ -391,7 +407,8 @@ class CoordinatorEngine:
                     continue
 
                 await self.repository.transition_task(session, task, AgentTaskStatus.ready)
-                await self.repository.add_event(
+                await self._add_event(
+                    request,
                     session,
                     run=run,
                     event_type="task_ready",
@@ -410,7 +427,8 @@ class CoordinatorEngine:
                         task_id=task.id,
                         safe_context_summary=task.objective[:300],
                     )
-                    await self.repository.add_event(
+                    await self._add_event(
+                        request,
                         session,
                         run=run,
                         event_type="handoff",
@@ -453,15 +471,23 @@ class CoordinatorEngine:
                 results_by_seq[task.sequence] = result
                 if result.get("requires_approval"):
                     approval_required = True
+                    approval_action_type = str(
+                        result.get("approval_action_type") or "sensitive_action"
+                    )
+                    # Keep the write payload internal to the task record. Public
+                    # serializers never expose this field.
+                    task.safe_input_summary = str(result.get("approval_summary") or task.objective)[
+                        :500
+                    ]
                     await self.repository.create_approval(
                         session,
                         run=run,
                         task=task,
                         user=request.user,
                         action_type=str(result.get("approval_action_type") or "sensitive_action"),
-                        safe_action_summary=str(result.get("approval_summary") or task.objective)[
-                            :500
-                        ],
+                        safe_action_summary=(
+                            "Confirm " f"{approval_action_type.replace('_', ' ')} " "action"
+                        )[:500],
                     )
                     await self.repository.transition_task(
                         session, task, AgentTaskStatus.awaiting_approval
@@ -469,7 +495,8 @@ class CoordinatorEngine:
                     await self.repository.transition_run(
                         session, run, AgentRunStatus.awaiting_approval
                     )
-                    await self.repository.add_event(
+                    await self._add_event(
+                        request,
                         session,
                         run=run,
                         event_type="approval_required",
@@ -477,15 +504,21 @@ class CoordinatorEngine:
                         task_id=task.id,
                         safe_metadata={"action_type": result.get("approval_action_type")},
                     )
-                    # Continue remaining tasks that do not depend on this write when possible.
-                    # For Phase 9.2 we mark success soft so dependents can still synthesize.
-                    results_by_seq[task.sequence] = {
-                        **result,
-                        "success": True,
-                        "requires_approval": True,
-                    }
-                    # Resume run so remaining tasks can execute.
-                    await self.repository.transition_run(session, run, AgentRunStatus.running)
+                    # Approval is a durable pause. No dependent work starts until
+                    # an owned approval endpoint resolves this gate.
+                    run.steps_used = budget.steps_used
+                    run.llm_calls_used = budget.llm_calls_used
+                    run.tool_calls_used = budget.tool_calls_used
+                    return CoordinatorResult(
+                        execution_mode="multi_agent",
+                        used_single_agent_fallback=False,
+                        run=run,
+                        decision=decision,
+                        plan=plan,
+                        safety=safety,
+                        task_results=[results_by_seq[s] for s in sorted(results_by_seq)],
+                        approval_required=True,
+                    )
 
             # Collect final synthesis content from conversation task if present.
             final_content = ""
@@ -510,7 +543,8 @@ class CoordinatorEngine:
             run.llm_calls_used = budget.llm_calls_used
             run.tool_calls_used = budget.tool_calls_used
             await self.repository.transition_run(session, run, AgentRunStatus.completed)
-            await self.repository.add_event(
+            await self._add_event(
+                request,
                 session,
                 run=run,
                 event_type="run_completed",
@@ -543,12 +577,13 @@ class CoordinatorEngine:
             )
         except AgentTimeoutError as exc:
             return await self._fail_run(
-                session, run, budget, decision, "run_timed_out", exc.code, str(exc)
+                session, request, run, budget, decision, "run_timed_out", exc.code, str(exc)
             )
         except AgentCancelledError as exc:
             await self.repository.cancel_queued_tasks(session, run)
             return await self._fail_run(
                 session,
+                request,
                 run,
                 budget,
                 decision,
@@ -559,16 +594,17 @@ class CoordinatorEngine:
             )
         except (AgentSafetyError, AgentPlanValidationError, AgentLimitExceededError) as exc:
             return await self._fail_run(
-                session, run, budget, decision, "run_failed", exc.code, str(exc)
+                session, request, run, budget, decision, "run_failed", exc.code, str(exc)
             )
         except AgentError as exc:
             return await self._fail_run(
-                session, run, budget, decision, "run_failed", exc.code, str(exc)
+                session, request, run, budget, decision, "run_failed", exc.code, str(exc)
             )
         except Exception:  # noqa: BLE001
             logger.exception("coordinator_unexpected_failure correlation_id=%s", correlation_id)
             return await self._fail_run(
                 session,
+                request,
                 run,
                 budget,
                 decision,
@@ -580,6 +616,7 @@ class CoordinatorEngine:
     async def _fail_run(
         self,
         session: AsyncSession,
+        request: CoordinatorRequest,
         run: AgentRun,
         budget: RunBudget,
         decision: AgentComplexityDecision,
@@ -603,7 +640,8 @@ class CoordinatorEngine:
             error_code=error_code,
             safe_error_message=safe_message,
         )
-        await self.repository.add_event(
+        await self._add_event(
+            request,
             session,
             run=run,
             event_type=event_type,
@@ -617,6 +655,154 @@ class CoordinatorEngine:
             decision=decision,
             error_code=error_code,
             safe_error_message=safe_message,
+        )
+
+    async def resume_after_approval(
+        self,
+        session: AsyncSession,
+        *,
+        user: User,
+        run: AgentRun,
+    ) -> None:
+        """Continue only unfinished persisted tasks after an approval gate."""
+        request = CoordinatorRequest(
+            user=user,
+            user_message=run.original_request_summary,
+            conversation_id=run.conversation_id,
+            memory_enabled=True,
+            correlation_id=run.correlation_id,
+            enabled_tool_names=frozenset(
+                str(name) for task in run.tasks for name in (task.allowed_tools_json or [])
+            ),
+        )
+        budget = RunBudget(
+            maximum_steps=run.maximum_steps or self.settings.agent_max_steps,
+            max_llm_calls=self.settings.agent_max_llm_calls,
+            max_tool_calls=self.settings.agent_max_tool_calls,
+            max_context_characters=self.settings.agent_context_max_characters,
+            run_timeout_seconds=float(self.settings.agent_run_timeout_seconds),
+            steps_used=run.steps_used,
+            llm_calls_used=run.llm_calls_used,
+            tool_calls_used=run.tool_calls_used,
+        )
+        envelope = self._build_envelope(request, run.correlation_id)
+        budget.observe_context(envelope.character_count())
+        task_by_seq = {task.sequence: task for task in run.tasks}
+        results_by_seq: dict[int, dict[str, Any]] = {
+            task.sequence: {
+                "success": task.status == AgentTaskStatus.succeeded,
+                "agent_name": task.assigned_agent_key,
+                "result_summary": task.result_summary or f"Task {task.status.value}",
+            }
+            for task in run.tasks
+            if task.status
+            not in {
+                AgentTaskStatus.pending,
+                AgentTaskStatus.ready,
+                AgentTaskStatus.awaiting_approval,
+                AgentTaskStatus.running,
+            }
+        }
+        completed = [
+            task
+            for task in sorted(run.tasks, key=lambda item: item.sequence)
+            if task.status == AgentTaskStatus.succeeded
+        ]
+        last_agent = completed[-1].assigned_agent_key if completed else "coordinator"
+
+        for task in sorted(run.tasks, key=lambda item: item.sequence):
+            if task.status not in {AgentTaskStatus.pending, AgentTaskStatus.ready}:
+                continue
+            dependencies = [task_by_seq.get(int(seq)) for seq in task.dependencies_json or []]
+            if any(dep is None or dep.status != AgentTaskStatus.succeeded for dep in dependencies):
+                await self.repository.transition_task(
+                    session,
+                    task,
+                    AgentTaskStatus.skipped,
+                    result_summary="Skipped because a dependency did not succeed",
+                    error_code="dependency_failed",
+                    safe_error_message="A required prior task did not succeed",
+                )
+                await self._add_event(
+                    request,
+                    session,
+                    run=run,
+                    event_type="task_skipped",
+                    agent_key=task.assigned_agent_key,
+                    task_id=task.id,
+                    safe_metadata={"sequence": task.sequence, "reason": "dependency_failed"},
+                )
+                continue
+            if task.status == AgentTaskStatus.pending:
+                await self.repository.transition_task(session, task, AgentTaskStatus.ready)
+                await self._add_event(
+                    request,
+                    session,
+                    run=run,
+                    event_type="task_ready",
+                    agent_key=task.assigned_agent_key,
+                    task_id=task.id,
+                    safe_metadata={"sequence": task.sequence},
+                )
+            if task.assigned_agent_key != last_agent:
+                await self.repository.add_handoff(
+                    session,
+                    run=run,
+                    from_agent_key=last_agent,
+                    to_agent_key=task.assigned_agent_key,
+                    reason=f"Resume {task.task_type} after approval",
+                    task_id=task.id,
+                    safe_context_summary="Resumed after user approval",
+                )
+                await self._add_event(
+                    request,
+                    session,
+                    run=run,
+                    event_type="handoff",
+                    agent_key=task.assigned_agent_key,
+                    task_id=task.id,
+                    safe_metadata={"from": last_agent, "to": task.assigned_agent_key},
+                )
+                last_agent = task.assigned_agent_key
+            prior = [results_by_seq[seq] for seq in sorted(results_by_seq)]
+            task_envelope = envelope.model_copy(
+                update={
+                    "prior_task_results": prior,
+                    "allowed_tools": list(task.allowed_tools_json or []),
+                    "execution_metadata": {
+                        **envelope.execution_metadata,
+                        "run_id": str(run.id),
+                        "task_id": str(task.id),
+                        "resumed_after_approval": True,
+                    },
+                }
+            ).enforce_budgets()
+            budget.observe_context(task_envelope.character_count())
+            result = await self._run_task_with_retries(
+                session,
+                request=request,
+                run=run,
+                task=task,
+                envelope=task_envelope,
+                budget=budget,
+            )
+            results_by_seq[task.sequence] = result
+            if result.get("requires_approval"):
+                raise AgentStateTransitionError(
+                    "A resumed task requested an unsupported nested approval"
+                )
+
+        run.steps_used = budget.steps_used
+        run.llm_calls_used = budget.llm_calls_used
+        run.tool_calls_used = budget.tool_calls_used
+        await self.repository.transition_run(session, run, AgentRunStatus.completed)
+        await self._add_event(
+            request,
+            session,
+            run=run,
+            event_type="run_completed",
+            agent_key="coordinator",
+            safe_metadata={"resumed_after_approval": True},
         )
 
     async def _run_task_with_retries(
@@ -634,7 +820,8 @@ class CoordinatorEngine:
         while True:
             budget.consume_step()
             await self.repository.transition_task(session, task, AgentTaskStatus.running)
-            await self.repository.add_event(
+            await self._add_event(
+                request,
                 session,
                 run=run,
                 event_type="task_started",
@@ -655,7 +842,8 @@ class CoordinatorEngine:
                     error_code="agent_task_timed_out",
                     safe_error_message="Task timed out",
                 )
-                await self.repository.add_event(
+                await self._add_event(
+                    request,
                     session,
                     run=run,
                     event_type="task_failed",
@@ -691,7 +879,8 @@ class CoordinatorEngine:
                         AgentTaskStatus.succeeded,
                         result_summary=str(mapped.get("result_summary") or "")[:2000],
                     )
-                await self.repository.add_event(
+                await self._add_event(
+                    request,
                     session,
                     run=run,
                     event_type="task_completed",
@@ -739,7 +928,8 @@ class CoordinatorEngine:
                     or "Task failed"
                 )[:500],
             )
-            await self.repository.add_event(
+            await self._add_event(
+                request,
                 session,
                 run=run,
                 event_type="task_failed",
@@ -923,6 +1113,36 @@ class CoordinatorEngine:
             "approval_action_type": result.approval_action_type,
             "approval_summary": result.approval_summary,
         }
+
+    async def _add_event(
+        self,
+        request: CoordinatorRequest,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        event_type: str,
+        agent_key: str | None = None,
+        task_id: UUID | None = None,
+        safe_metadata: dict[str, object] | None = None,
+    ) -> None:
+        await self.repository.add_event(
+            session,
+            run=run,
+            event_type=event_type,
+            agent_key=agent_key,
+            task_id=task_id,
+            safe_metadata=safe_metadata,
+        )
+        if request.event_callback is not None:
+            callback_result = request.event_callback(
+                run.id,
+                event_type,
+                agent_key,
+                task_id,
+                safe_metadata or {},
+            )
+            if asyncio.iscoroutine(callback_result):
+                await callback_result
 
     async def _raise_if_cancelled(self, request: CoordinatorRequest) -> None:
         if request.cancel_check is None:

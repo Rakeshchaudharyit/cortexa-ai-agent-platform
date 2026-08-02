@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.admin.service import AdminService
+from app.agents.base import AgentRuntimeOverride
 from app.agents.definitions import create_default_agent_registry
 from app.agents.multi_agent import MultiAgentService
 from app.agents.orchestrator import AgentOrchestrator
@@ -187,8 +188,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         factory = get_session_factory()
         async with factory() as session:
             await admin_service.refresh_tool_overrides(session)
+            definitions = await agent_run_repository.list_definitions(session)
+            overrides: dict[str, AgentRuntimeOverride] = {}
+            for definition in definitions:
+                if not agent_registry.has(definition.key):
+                    continue
+                overrides[definition.key] = AgentRuntimeOverride(
+                    enabled=definition.enabled,
+                    timeout_seconds=definition.timeout_seconds,
+                    maximum_steps=definition.maximum_steps,
+                    allowed_tools=frozenset(str(item) for item in definition.allowed_tools_json),
+                )
+            agent_registry.apply_overrides(overrides)
+            recovered = await agent_run_repository.recover_stale_runs(session)
+            await session.commit()
+            if recovered:
+                logger.warning("agent_stale_runs_recovered count=%s", recovered)
     except Exception:  # noqa: BLE001
-        logger.warning("admin_tool_overrides_load_failed")
+        logger.exception("startup_runtime_overrides_or_recovery_failed")
 
     app.state.settings = settings
     app.state.engine = engine

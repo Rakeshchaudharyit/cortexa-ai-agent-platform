@@ -31,6 +31,8 @@ MULTI_AGENT_EVENT_TYPES: tuple[str, ...] = (
     "task_skipped",
     "handoff",
     "approval_required",
+    "approval_resolved",
+    "run_cancelled",
     "run_completed",
     "run_failed",
     "run_timed_out",

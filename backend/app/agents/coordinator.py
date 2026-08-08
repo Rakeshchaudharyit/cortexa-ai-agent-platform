@@ -23,6 +23,7 @@ from app.agents.exceptions import (
     AgentStateTransitionError,
     AgentTimeoutError,
 )
+from app.agents.failures import FailureClassifier
 from app.agents.registry import AgentRegistry
 from app.agents.repository import AgentRunRepository
 from app.agents.schemas import (
@@ -34,6 +35,11 @@ from app.agents.schemas import (
     AgentTaskResult,
     ClassifierInput,
     SafetyDecision,
+)
+from app.agents.telemetry import (
+    PhaseTimer,
+    apply_budget_snapshot,
+    calculate_execution_duration_ms,
 )
 from app.agents.specialists.conversation import ConversationSpecialist
 from app.agents.specialists.knowledge import KnowledgeSpecialist
@@ -49,19 +55,6 @@ from app.models.user import User
 logger = logging.getLogger("cortexa.agents.coordinator")
 
 
-_RETRYABLE_CODES = frozenset(
-    {
-        "llm_request_timeout",
-        "LLMRequestTimeoutError",
-        "TimeoutError",
-        "knowledge_retrieval_failed",
-        "memory_retrieval_failed",
-        "tool_timeout",
-        "provider_unavailable",
-        "LLMProviderUnavailableError",
-        "LLMModelUnavailableError",
-    }
-)
 
 
 @dataclass
@@ -85,6 +78,8 @@ class CoordinatorRequest:
     cancel_check: Any | None = None
     on_run_created: Any | None = None
     event_callback: Any | None = None
+    force_multi_agent: bool = False
+    execution_profile: str = "fast"
 
 
 @dataclass
@@ -127,6 +122,7 @@ class CoordinatorEngine:
         self.repository = repository
         self.llm_service = llm_service
         self.classifier = classifier or ComplexityClassifier(settings, llm_service=llm_service)
+        self.failure_classifier = FailureClassifier()
         self.planning = PlanningSpecialist(
             settings=settings, registry=registry, llm_service=llm_service
         )
@@ -162,24 +158,46 @@ class CoordinatorEngine:
                 self.registry.unregister(agent.name)
             self.registry.register(agent)
 
+
+    @staticmethod
+    def _profile_limits(profile: str) -> tuple[int, int, int, bool]:
+        """Return run, specialist, synthesis limits and timeout-retry policy."""
+        normalized = profile if profile in {"fast", "balanced", "deep"} else "fast"
+        if normalized == "balanced":
+            return (150, 60, 30, True)
+        if normalized == "deep":
+            return (240, 90, 45, True)
+        return (90, 35, 20, False)
+
     async def execute(
         self,
         session: AsyncSession,
         request: CoordinatorRequest,
     ) -> CoordinatorResult:
         correlation_id = request.correlation_id or str(uuid.uuid4())
-        decision = await self.classifier.classify(
-            ClassifierInput(
-                user_message=request.user_message,
-                conversation_mode=request.conversation_mode,
-                selected_document_ids=[str(d) for d in request.selected_document_ids],
-                memory_enabled=request.memory_enabled,
-                explicit_memory_intent=request.explicit_memory_intent,
-                selected_tool_intent=list(request.selected_tool_intent),
-                conversation_context_summary=request.conversation_summary,
-                enabled_feature_flags={"multi_agent_enabled": self.settings.multi_agent_enabled},
+        if request.force_multi_agent:
+            decision = AgentComplexityDecision(
+                execution_mode="multi_agent",
+                confidence=1.0,
+                reason_codes=["user_forced_multi_agent", f"profile_{request.execution_profile}"],
+                required_capabilities=["planning", "knowledge", "response"],
+                suggested_agents=["planning", "knowledge", "conversation"],
+                requires_planning=True,
+                safe_summary="User explicitly requested coordinated specialist execution",
             )
-        )
+        else:
+            decision = await self.classifier.classify(
+                ClassifierInput(
+                    user_message=request.user_message,
+                    conversation_mode=request.conversation_mode,
+                    selected_document_ids=[str(d) for d in request.selected_document_ids],
+                    memory_enabled=request.memory_enabled,
+                    explicit_memory_intent=request.explicit_memory_intent,
+                    selected_tool_intent=list(request.selected_tool_intent),
+                    conversation_context_summary=request.conversation_summary,
+                    enabled_feature_flags={"multi_agent_enabled": self.settings.multi_agent_enabled},
+                )
+            )
 
         if (
             not self.settings.multi_agent_enabled
@@ -216,6 +234,7 @@ class CoordinatorEngine:
             execution_mode=AgentExecutionMode.multi_agent,
             maximum_steps=self.settings.agent_max_steps,
         )
+        run_id = run.id
         if request.on_run_created is not None:
             registered = request.on_run_created(run.id)
             if asyncio.iscoroutine(registered):
@@ -226,7 +245,11 @@ class CoordinatorEngine:
             run=run,
             event_type="run_started",
             agent_key="coordinator",
-            safe_metadata={"execution_mode": "multi_agent"},
+            safe_metadata={
+                "execution_mode": "multi_agent",
+                "execution_profile": request.execution_profile,
+                "forced_by_user": request.force_multi_agent,
+            },
         )
         await self._add_event(
             request,
@@ -240,13 +263,23 @@ class CoordinatorEngine:
                 "confidence": decision.confidence,
             },
         )
+        # Persist a single durable start checkpoint before provider work. Do not
+        # commit from event callbacks while task/provider awaits are active.
+        await session.commit()
+        await session.refresh(run)
+        logger.info(
+            "coordinator_start_checkpoint run_id=%s correlation_id=%s",
+            run.id,
+            correlation_id,
+        )
 
+        run_limit, _, _, _ = self._profile_limits(request.execution_profile)
         budget = RunBudget(
             maximum_steps=run.maximum_steps or self.settings.agent_max_steps,
             max_llm_calls=self.settings.agent_max_llm_calls,
             max_tool_calls=self.settings.agent_max_tool_calls,
             max_context_characters=self.settings.agent_context_max_characters,
-            run_timeout_seconds=float(self.settings.agent_run_timeout_seconds),
+            run_timeout_seconds=float(min(self.settings.agent_run_timeout_seconds, run_limit)),
         )
 
         try:
@@ -268,13 +301,16 @@ class CoordinatorEngine:
                 safe_context_summary=decision.safe_summary,
             )
 
+            planning_timer = PhaseTimer()
             plan = await self.planning.create_plan(
                 user_request=request.user_message,
                 decision=decision,
                 enabled_tool_names=request.enabled_tool_names,
                 selected_document_ids=[str(d) for d in request.selected_document_ids],
                 memory_enabled=request.memory_enabled,
+                execution_profile=request.execution_profile,
             )
+            run.planning_duration_ms = planning_timer.elapsed_ms()
             await self.repository.transition_run(
                 session,
                 run,
@@ -291,6 +327,8 @@ class CoordinatorEngine:
                     "task_count": len(plan.tasks),
                     "final_response_agent": plan.final_response_agent,
                     "requires_approval": plan.requires_approval,
+                    "planning_strategy": plan.planning_strategy,
+                    "planning_duration_ms": run.planning_duration_ms,
                 },
             )
 
@@ -341,6 +379,20 @@ class CoordinatorEngine:
                     }
                     for t in plan.tasks
                 ],
+            )
+
+            # Persist the validated task graph before any external provider call.
+            # This creates a clean transaction boundary for timeout recovery and
+            # browser reconnects without committing from SSE callbacks.
+            await session.commit()
+            await session.refresh(run)
+            for persisted_task in tasks:
+                await session.refresh(persisted_task)
+            logger.info(
+                "coordinator_plan_checkpoint run_id=%s correlation_id=%s task_count=%s",
+                run.id,
+                correlation_id,
+                len(tasks),
             )
 
             envelope = self._build_envelope(request, correlation_id)
@@ -469,6 +521,12 @@ class CoordinatorEngine:
                     budget=budget,
                 )
                 results_by_seq[task.sequence] = result
+                # Checkpoint only between tasks, never while a provider await is
+                # active. This preserves completed specialist work and keeps ORM
+                # state valid for the next task.
+                await session.commit()
+                await session.refresh(run)
+                await session.refresh(task)
                 if result.get("requires_approval"):
                     approval_required = True
                     approval_action_type = str(
@@ -533,15 +591,16 @@ class CoordinatorEngine:
 
             if not final_content:
                 # Ensure a conversation synthesis if plan omitted it but we have priors.
+                synthesis_timer = PhaseTimer()
                 synth = await self._synthesize_fallback(
                     session, request, run, envelope, ordered_results, budget
                 )
                 final_content = synth.get("content") or ""
                 citations.extend(synth.get("citations") or [])
+                run.synthesis_duration_ms = synthesis_timer.elapsed_ms()
 
-            run.steps_used = budget.steps_used
-            run.llm_calls_used = budget.llm_calls_used
-            run.tool_calls_used = budget.tool_calls_used
+            apply_budget_snapshot(run, budget)
+            run.execution_duration_ms = calculate_execution_duration_ms(run)
             await self.repository.transition_run(session, run, AgentRunStatus.completed)
             await self._add_event(
                 request,
@@ -600,8 +659,21 @@ class CoordinatorEngine:
             return await self._fail_run(
                 session, request, run, budget, decision, "run_failed", exc.code, str(exc)
             )
-        except Exception:  # noqa: BLE001
-            logger.exception("coordinator_unexpected_failure correlation_id=%s", correlation_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "coordinator_unexpected_failure correlation_id=%s exception_type=%s "
+                "exception_message=%s",
+                correlation_id,
+                type(exc).__name__,
+                str(exc),
+            )
+            # A failed provider/task await may leave the transaction unusable.
+            # Roll back explicitly and re-load the durable run before recording
+            # the terminal failure, avoiding implicit ORM I/O (MissingGreenlet).
+            await session.rollback()
+            reloaded = await self.repository.get_by_id(session, run_id)
+            if reloaded is not None:
+                run = reloaded
             return await self._fail_run(
                 session,
                 request,
@@ -629,9 +701,13 @@ class CoordinatorEngine:
         target = status or (
             AgentRunStatus.timed_out if event_type == "run_timed_out" else AgentRunStatus.failed
         )
-        run.steps_used = budget.steps_used
-        run.llm_calls_used = budget.llm_calls_used
-        run.tool_calls_used = budget.tool_calls_used
+        failure = self.failure_classifier.classify(
+            error_code=error_code,
+            retryable_hint=False if target == AgentRunStatus.cancelled else None,
+            safe_message=safe_message,
+        )
+        apply_budget_snapshot(run, budget)
+        run.execution_duration_ms = calculate_execution_duration_ms(run)
         await self.repository.cancel_queued_tasks(session, run)
         await self.repository.transition_run(
             session,
@@ -646,7 +722,7 @@ class CoordinatorEngine:
             run=run,
             event_type=event_type,
             agent_key="coordinator",
-            safe_metadata={"error_code": error_code, **dict(budget.snapshot())},
+            safe_metadata={**failure.safe_metadata(), **dict(budget.snapshot())},
         )
         return CoordinatorResult(
             execution_mode="multi_agent",
@@ -680,7 +756,11 @@ class CoordinatorEngine:
             max_llm_calls=self.settings.agent_max_llm_calls,
             max_tool_calls=self.settings.agent_max_tool_calls,
             max_context_characters=self.settings.agent_context_max_characters,
-            run_timeout_seconds=float(self.settings.agent_run_timeout_seconds),
+            run_timeout_seconds=float(
+                min(self.settings.agent_run_timeout_seconds, 90)
+                if self.settings.agent_interactive_fast_mode
+                else self.settings.agent_run_timeout_seconds
+            ),
             steps_used=run.steps_used,
             llm_calls_used=run.llm_calls_used,
             tool_calls_used=run.tool_calls_used,
@@ -792,9 +872,8 @@ class CoordinatorEngine:
                     "A resumed task requested an unsupported nested approval"
                 )
 
-        run.steps_used = budget.steps_used
-        run.llm_calls_used = budget.llm_calls_used
-        run.tool_calls_used = budget.tool_calls_used
+        apply_budget_snapshot(run, budget)
+        run.execution_duration_ms = calculate_execution_duration_ms(run)
         await self.repository.transition_run(session, run, AgentRunStatus.completed)
         await self._add_event(
             request,
@@ -804,6 +883,7 @@ class CoordinatorEngine:
             agent_key="coordinator",
             safe_metadata={"resumed_after_approval": True},
         )
+
 
     async def _run_task_with_retries(
         self,
@@ -815,7 +895,21 @@ class CoordinatorEngine:
         envelope: AgentContextEnvelope,
         budget: RunBudget,
     ) -> dict[str, Any]:
-        max_retries = min(task.maximum_retries, self.settings.agent_max_retries)
+        _, specialist_limit, synthesis_limit, retry_timeouts = self._profile_limits(
+            request.execution_profile
+        )
+        # Snapshot scalar fields before any provider await. ORM attributes must
+        # not be the source of implicit I/O after a timeout/cancellation boundary.
+        task_id = task.id
+        agent_key = task.assigned_agent_key
+        task_sequence = task.sequence
+        task_type = task.task_type
+        task_objective = task.objective
+        task_dependencies = list(task.dependencies_json or [])
+        task_allowed_tools = list(task.allowed_tools_json or [])
+        task_requires_approval = task.requires_approval
+        task_maximum_retries = task.maximum_retries
+        max_retries = min(task_maximum_retries, self.settings.agent_max_retries)
         attempt = 0
         while True:
             budget.consume_step()
@@ -825,39 +919,130 @@ class CoordinatorEngine:
                 session,
                 run=run,
                 event_type="task_started",
-                agent_key=task.assigned_agent_key,
-                task_id=task.id,
-                safe_metadata={"sequence": task.sequence, "attempt": attempt},
+                agent_key=agent_key,
+                task_id=task_id,
+                safe_metadata={"sequence": task_sequence, "attempt": attempt},
             )
             try:
+                if agent_key == "conversation":
+                    requested_timeout = min(
+                        self.settings.agent_synthesis_timeout_seconds, synthesis_limit
+                    )
+                else:
+                    requested_timeout = min(
+                        self.settings.agent_task_timeout_seconds, specialist_limit
+                    )
+                effective_timeout = budget.bounded_timeout(float(requested_timeout))
                 result = await asyncio.wait_for(
                     self._dispatch_task(session, request, task, envelope, budget),
-                    timeout=float(self.settings.agent_task_timeout_seconds),
+                    timeout=effective_timeout,
                 )
-            except TimeoutError:
+                await session.refresh(task)
+            except TimeoutError as exc:
+                await session.refresh(task)
+                # Final synthesis must degrade gracefully on slow local models.
+                # Earlier specialist results are already persisted and safe to summarize,
+                # so a Conversation Agent timeout should not turn the whole run into an
+                # opaque internal failure.
+                if agent_key == "conversation":
+                    task_req = AgentTaskRequest(
+                        sequence=task_sequence,
+                        agent_name=agent_key,
+                        task_type=task_type,
+                        objective=task_objective,
+                        dependencies=task_dependencies,
+                        allowed_tools=task_allowed_tools,
+                        requires_approval=task_requires_approval,
+                        maximum_retries=task_maximum_retries,
+                    )
+                    fallback_result = self.conversation.build_deterministic_fallback(
+                        task=task_req,
+                        context=envelope,
+                    )
+                    mapped = self._result_to_dict(fallback_result, task)
+                    await self.repository.transition_task(
+                        session,
+                        task,
+                        AgentTaskStatus.succeeded,
+                        result_summary=str(mapped.get("result_summary") or "")[:2000],
+                    )
+                    await self._add_event(
+                        request,
+                        session,
+                        run=run,
+                        event_type="task_completed",
+                        agent_key=agent_key,
+                        task_id=task_id,
+                        safe_metadata={
+                            "sequence": task_sequence,
+                            "degraded_synthesis": True,
+                            "reason": "provider_timeout",
+                            "llm_calls_used": 0,
+                            "tool_calls_used": 0,
+                            "requires_approval": False,
+                        },
+                    )
+                    return mapped
+
+                decision = self.failure_classifier.classify(
+                    error=exc,
+                    error_code="agent_task_timed_out",
+                    safe_message="Task timed out",
+                )
+                if (
+                    decision.retryable
+                    and attempt < max_retries
+                    and retry_timeouts
+                ):
+                    attempt += 1
+                    await self.repository.transition_task(
+                        session,
+                        task,
+                        AgentTaskStatus.ready,
+                        increment_retry=True,
+                        error_code=decision.error_code,
+                        safe_error_message=decision.safe_message,
+                    )
+                    await self._add_event(
+                        request,
+                        session,
+                        run=run,
+                        event_type="task_retrying",
+                        agent_key=agent_key,
+                        task_id=task_id,
+                        safe_metadata={
+                            **decision.safe_metadata(),
+                            "attempt": attempt,
+                            "maximum_retries": max_retries,
+                        },
+                    )
+                    continue
                 await self.repository.transition_task(
                     session,
                     task,
                     AgentTaskStatus.timed_out,
-                    error_code="agent_task_timed_out",
-                    safe_error_message="Task timed out",
+                    error_code=decision.error_code,
+                    safe_error_message=decision.safe_message,
                 )
                 await self._add_event(
                     request,
                     session,
                     run=run,
                     event_type="task_failed",
-                    agent_key=task.assigned_agent_key,
-                    task_id=task.id,
-                    safe_metadata={"error_code": "agent_task_timed_out"},
+                    agent_key=agent_key,
+                    task_id=task_id,
+                    safe_metadata=decision.safe_metadata(),
                 )
                 return {
                     "success": False,
-                    "agent_name": task.assigned_agent_key,
-                    "result_summary": "Task timed out",
-                    "error_code": "agent_task_timed_out",
+                    "agent_name": agent_key,
+                    "result_summary": decision.safe_message,
+                    "error_code": decision.error_code,
+                    "failure_category": decision.category.value,
+                    "retryable": decision.retryable,
                 }
             except AgentLimitExceededError as exc:
+                await session.refresh(task)
                 await self.repository.transition_task(
                     session,
                     task,
@@ -866,6 +1051,110 @@ class CoordinatorEngine:
                     safe_error_message=str(exc),
                 )
                 raise
+            except Exception as exc:  # noqa: BLE001
+                await session.refresh(task)
+                # Local providers can fail with provider-specific timeout or connection
+                # exceptions that are not asyncio.TimeoutError. Final synthesis still
+                # has enough persisted specialist context to return a safe degraded
+                # answer, so do not fail the entire run for that case.
+                if agent_key == "conversation":
+                    logger.info(
+                        "conversation_synthesis_degraded run_id=%s task_id=%s "
+                        "error_code=%s",
+                        run.id,
+                        task_id,
+                        type(exc).__name__,
+                    )
+                    task_req = AgentTaskRequest(
+                        sequence=task_sequence,
+                        agent_name=agent_key,
+                        task_type=task_type,
+                        objective=task_objective,
+                        dependencies=task_dependencies,
+                        allowed_tools=task_allowed_tools,
+                        requires_approval=task_requires_approval,
+                        maximum_retries=task_maximum_retries,
+                    )
+                    fallback_result = self.conversation.build_deterministic_fallback(
+                        task=task_req,
+                        context=envelope,
+                    )
+                    mapped = self._result_to_dict(fallback_result, task)
+                    await self.repository.transition_task(
+                        session,
+                        task,
+                        AgentTaskStatus.succeeded,
+                        result_summary=str(mapped.get("result_summary") or "")[:2000],
+                    )
+                    await self._add_event(
+                        request,
+                        session,
+                        run=run,
+                        event_type="task_completed",
+                        agent_key=agent_key,
+                        task_id=task_id,
+                        safe_metadata={
+                            "sequence": task_sequence,
+                            "degraded_synthesis": True,
+                            "reason": "provider_error",
+                            "error_code": type(exc).__name__,
+                            "llm_calls_used": 0,
+                            "tool_calls_used": 0,
+                            "requires_approval": False,
+                        },
+                    )
+                    return mapped
+
+                decision = self.failure_classifier.classify(error=exc)
+                if decision.retryable and attempt < max_retries:
+                    attempt += 1
+                    await self.repository.transition_task(
+                        session,
+                        task,
+                        AgentTaskStatus.ready,
+                        increment_retry=True,
+                        error_code=decision.error_code,
+                        safe_error_message=decision.safe_message,
+                    )
+                    await self._add_event(
+                        request,
+                        session,
+                        run=run,
+                        event_type="task_retrying",
+                        agent_key=agent_key,
+                        task_id=task_id,
+                        safe_metadata={
+                            **decision.safe_metadata(),
+                            "attempt": attempt,
+                            "maximum_retries": max_retries,
+                        },
+                    )
+                    continue
+                await self.repository.transition_task(
+                    session,
+                    task,
+                    AgentTaskStatus.failed,
+                    error_code=decision.error_code,
+                    safe_error_message=decision.safe_message,
+                )
+                await self._add_event(
+                    request,
+                    session,
+                    run=run,
+                    event_type="task_failed",
+                    agent_key=agent_key,
+                    task_id=task_id,
+                    safe_metadata=decision.safe_metadata(),
+                )
+                return {
+                    "success": False,
+                    "agent_name": agent_key,
+                    "result_summary": decision.safe_message,
+                    "error_code": decision.error_code,
+                    "safe_error_message": decision.safe_message,
+                    "failure_category": decision.category.value,
+                    "retryable": decision.retryable,
+                }
 
             mapped = self._result_to_dict(result, task)
             if mapped.get("success") or mapped.get("requires_approval"):
@@ -884,10 +1173,10 @@ class CoordinatorEngine:
                     session,
                     run=run,
                     event_type="task_completed",
-                    agent_key=task.assigned_agent_key,
-                    task_id=task.id,
+                    agent_key=agent_key,
+                    task_id=task_id,
                     safe_metadata={
-                        "sequence": task.sequence,
+                        "sequence": task_sequence,
                         "llm_calls_used": mapped.get("llm_calls_used", 0),
                         "tool_calls_used": mapped.get("tool_calls_used", 0),
                         "requires_approval": bool(mapped.get("requires_approval")),
@@ -895,25 +1184,50 @@ class CoordinatorEngine:
                 )
                 return mapped
 
-            retryable = bool(mapped.get("retryable")) or (
-                str(mapped.get("error_code") or "") in _RETRYABLE_CODES
+            decision = self.failure_classifier.classify(
+                error_code=str(mapped.get("error_code") or "task_failed"),
+                retryable_hint=(
+                    bool(mapped.get("retryable")) if "retryable" in mapped else None
+                ),
+                safe_message=str(
+                    mapped.get("safe_error_message")
+                    or mapped.get("result_summary")
+                    or "Task failed"
+                ),
             )
-            if retryable and attempt < max_retries:
+            mapped["failure_category"] = decision.category.value
+            mapped["retryable"] = decision.retryable
+            if decision.retryable and attempt < max_retries:
                 attempt += 1
                 await self.repository.transition_task(
                     session,
                     task,
                     AgentTaskStatus.ready,
                     increment_retry=True,
-                    error_code=str(mapped.get("error_code") or "retryable_failure"),
-                    safe_error_message=str(mapped.get("safe_error_message") or "Retrying"),
+                    error_code=decision.error_code,
+                    safe_error_message=decision.safe_message,
+                )
+                await self._add_event(
+                    request,
+                    session,
+                    run=run,
+                    event_type="task_retrying",
+                    agent_key=agent_key,
+                    task_id=task_id,
+                    safe_metadata={
+                        **decision.safe_metadata(),
+                        "attempt": attempt,
+                        "maximum_retries": max_retries,
+                    },
                 )
                 logger.info(
-                    "coordinator_task_retry run_id=%s task_id=%s retry_count=%s error_code=%s",
+                    "coordinator_task_retry run_id=%s task_id=%s retry_count=%s "
+                    "error_code=%s failure_category=%s",
                     run.id,
-                    task.id,
+                    task_id,
                     attempt,
-                    mapped.get("error_code"),
+                    decision.error_code,
+                    decision.category.value,
                 )
                 continue
 
@@ -921,21 +1235,17 @@ class CoordinatorEngine:
                 session,
                 task,
                 AgentTaskStatus.failed,
-                error_code=str(mapped.get("error_code") or "task_failed"),
-                safe_error_message=str(
-                    mapped.get("safe_error_message")
-                    or mapped.get("result_summary")
-                    or "Task failed"
-                )[:500],
+                error_code=decision.error_code,
+                safe_error_message=decision.safe_message,
             )
             await self._add_event(
                 request,
                 session,
                 run=run,
                 event_type="task_failed",
-                agent_key=task.assigned_agent_key,
-                task_id=task.id,
-                safe_metadata={"error_code": mapped.get("error_code"), "retryable": False},
+                agent_key=agent_key,
+                task_id=task_id,
+                safe_metadata=decision.safe_metadata(),
             )
             return mapped
 
@@ -1015,9 +1325,25 @@ class CoordinatorEngine:
             objective="Synthesize the final user-facing answer",
         )
         synth_envelope = envelope.model_copy(update={"prior_task_results": prior}).enforce_budgets()
-        result = await self.conversation.execute(
-            task=task_req, context=synth_envelope, session=session, user=request.user
-        )
+        try:
+            result = await asyncio.wait_for(
+                self.conversation.execute(
+                    task=task_req, context=synth_envelope, session=session, user=request.user
+                ),
+                timeout=budget.bounded_timeout(
+                    float(
+                        min(
+                            self.settings.agent_synthesis_timeout_seconds,
+                            self._profile_limits(request.execution_profile)[2],
+                        )
+                    )
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            result = self.conversation.build_deterministic_fallback(
+                task=task_req,
+                context=synth_envelope,
+            )
         if result.llm_calls_used:
             budget.consume_llm(result.llm_calls_used)
         content = ""

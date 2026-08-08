@@ -2,7 +2,7 @@
   "name": "@cortexa/frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Cortexa AI Agent Platform — Next.js frontend (Phase 1 foundation).",
+  "description": "Cortexa AI Knowledge Platform — Next.js enterprise knowledge and AI quality frontend.",
   "engines": {
     "node": ">=22.0.0"
   },

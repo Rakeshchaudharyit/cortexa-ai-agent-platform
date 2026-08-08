@@ -114,7 +114,85 @@ export type DocumentResponse = {
   processed_at: string | null;
   error_code: string | null;
   error_message: string | null;
-  processing_mode: "synchronous";
+  title: string | null;
+  folder_id: string | null;
+  folder_name: string | null;
+  tags: string[];
+  version_number: number;
+  knowledge_document_id: string | null;
+  lifecycle_state: string;
+  is_active_version: boolean;
+  supersedes_document_id: string | null;
+  archived_at: string | null;
+  is_archived: boolean;
+  processing_mode: "synchronous" | "background";
+  background_job_id?: string | null;
+  job_status?: string | null;
+  job_progress_percent?: number | null;
+  job_status_message?: string | null;
+};
+
+export type DocumentVersionSummary = {
+  id: string;
+  version_number: number;
+  title: string | null;
+  original_filename: string;
+  lifecycle_state: string;
+  is_active_version: boolean;
+  status: DocumentStatus;
+  chunk_count: number;
+  character_count: number;
+  created_at: string;
+  processed_at: string | null;
+  archived_at: string | null;
+};
+
+export type DocumentVersionHistoryResponse = {
+  knowledge_document_id: string;
+  title: string;
+  active_version_id: string | null;
+  versions: DocumentVersionSummary[];
+};
+
+export type KnowledgeDocumentEventResponse = {
+  id: string;
+  document_id: string | null;
+  event_type: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DocumentTimelineResponse = {
+  knowledge_document_id: string;
+  items: KnowledgeDocumentEventResponse[];
+};
+
+export type DocumentVersionCompareResponse = {
+  left: DocumentVersionSummary;
+  right: DocumentVersionSummary;
+  changed_fields: string[];
+  chunk_count_delta: number;
+  character_count_delta: number;
+};
+
+export type DocumentFolderResponse = {
+  id: string;
+  name: string;
+  description: string | null;
+  document_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DocumentFolderListResponse = {
+  items: DocumentFolderResponse[];
+  total: number;
+};
+
+export type DocumentMetadataUpdate = {
+  title?: string | null;
+  folder_id?: string | null;
+  tags?: string[];
 };
 
 export type DocumentListResponse = {
@@ -201,6 +279,17 @@ export type MessageCitation = {
   similarity_score: number | null;
 };
 
+
+export type MessageFeedback = {
+  id: string;
+  sentiment: "helpful" | "not_helpful";
+  reason: "incorrect" | "missing_source" | "not_relevant" | "incomplete" | "unclear" | "other" | null;
+  comment: string | null;
+  status: "open" | "reviewed" | "resolved";
+  created_at: string;
+  updated_at: string;
+};
+
 export type ConversationMessage = {
   id: string;
   conversation_id: string;
@@ -225,6 +314,8 @@ export type ConversationMessage = {
   citations: MessageCitation[];
   tool_execution_ids?: string[];
   tool_executions?: ToolExecutionSummary[];
+  agent_run_id?: string | null;
+  feedback?: MessageFeedback | null;
 };
 
 export type ToolDefinition = {
@@ -307,6 +398,7 @@ export type ConversationDetail = {
   has_more_messages: boolean;
   memory_enabled?: boolean | null;
   memory_context_used?: number;
+  active_agent_run_id?: string | null;
 };
 
 export type ConversationListResponse = {
@@ -369,6 +461,9 @@ export type SSEMetadataData = {
   retrieval_ms?: number | null;
   retrieved_chunk_count?: number | null;
   citation_count?: number | null;
+  agent_run_id?: string;
+  execution_mode?: "single_agent" | "multi_agent";
+  approval_required?: boolean;
 };
 
 export type SSECompleteData = { message: ConversationMessage };
@@ -459,6 +554,27 @@ export type SSEEvent =
   | {
       event: "memory_action_failed";
       data: { code?: string; message?: string };
+    }
+  | {
+      event:
+        | "run_started"
+        | "complexity_classified"
+        | "planning_started"
+        | "plan_created"
+        | "safety_checked"
+        | "task_ready"
+        | "task_started"
+        | "task_completed"
+        | "task_failed"
+        | "task_skipped"
+        | "handoff"
+        | "approval_required"
+        | "approval_resolved"
+        | "run_cancelled"
+        | "run_completed"
+        | "run_failed"
+        | "run_timed_out";
+      data: import("@/types/agents").AgentLifecycleEventData;
     };
 
 export type MemoryCategory =

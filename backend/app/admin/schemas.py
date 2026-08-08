@@ -392,19 +392,73 @@ class AdminAnalyticsPoint(BaseModel):
     messages: int = 0
     document_uploads: int = 0
     rag_queries: int = 0
+    successful_responses: int = 0
+    failed_responses: int = 0
+    no_answer_responses: int = 0
+    citation_count: int = 0
+    total_tokens: int = 0
     memory_actions: int = 0
     tool_executions: int = 0
     tool_succeeded: int = 0
     tool_failed: int = 0
     ai_latency_ms: float | None = None
     retrieval_latency_ms: float | None = None
+    generation_latency_ms: float | None = None
     first_token_latency_ms: float | None = None
+
+
+class AdminRankedMetric(BaseModel):
+    label: str
+    value: int | float
+    secondary: str | None = None
+
+
+class AdminEvaluationTrendPoint(BaseModel):
+    date: str
+    average_score: float
+    pass_rate: float
+    total_cases: int
+
+
+class AdminQualitySummary(BaseModel):
+    score: float | None = None
+    evaluation_score: float | None = None
+    feedback_score: float | None = None
+    success_score: float | None = None
+    citation_coverage_score: float | None = None
+    label: str = "Insufficient data"
+
+
+class AdminKnowledgeHealth(BaseModel):
+    total_documents: int = 0
+    ready_documents: int = 0
+    pending_documents: int = 0
+    processing_documents: int = 0
+    failed_documents: int = 0
+    zero_chunk_documents: int = 0
+    stale_documents: int = 0
+    duplicate_content_groups: int = 0
+    health_score: float | None = None
+
+
+class AdminFeedbackSummary(BaseModel):
+    total: int = 0
+    helpful: int = 0
+    not_helpful: int = 0
+    open_reviews: int = 0
+    helpful_rate: float | None = None
 
 
 class AdminAnalyticsResponse(BaseModel):
     range_days: Literal[7, 30, 90]
     points: list[AdminAnalyticsPoint]
     totals: dict[str, int | float | None]
+    quality: AdminQualitySummary = Field(default_factory=AdminQualitySummary)
+    knowledge_health: AdminKnowledgeHealth = Field(default_factory=AdminKnowledgeHealth)
+    feedback: AdminFeedbackSummary = Field(default_factory=AdminFeedbackSummary)
+    top_documents: list[AdminRankedMetric] = Field(default_factory=list)
+    top_models: list[AdminRankedMetric] = Field(default_factory=list)
+    evaluation_trend: list[AdminEvaluationTrendPoint] = Field(default_factory=list)
     unavailable: list[str] = Field(default_factory=list)
     generated_at: datetime
 

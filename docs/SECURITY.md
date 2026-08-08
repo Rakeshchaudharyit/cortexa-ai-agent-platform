@@ -1,113 +1,57 @@
-# Security
+# Security Model
 
-Cortexa AI Agent Platform — security philosophy and controls.
+Cortexa is designed as a portfolio-quality enterprise AI knowledge platform with explicit authentication, authorization, ownership and privacy boundaries.
 
-Cortexa is **local-first**. Security prioritizes preventing accidental data exfiltration, unsafe tool execution, and secret leakage while remaining practical for single-operator and small-team local deployments.
+## Authentication and sessions
 
----
+- short-lived bearer access tokens;
+- HttpOnly refresh-session cookies;
+- configurable secure/SameSite/domain policy;
+- password hashing and bounded password policy;
+- protected password-reset workflow.
 
-## Local-First Execution
+## Authorization
 
-- Default inference, embeddings, and speech will run on local runtimes in later phases.
-- Phase 1 does not contact cloud AI APIs and does not download models automatically.
-- Phase 2 integrates Ollama locally only. Models are never auto-pulled.
+- user-owned documents, conversations, citations, memories and jobs are resolved in authenticated scope;
+- admin APIs require an administrator role;
+- resource identifiers alone are never treated as authorization.
 
----
+## Knowledge isolation
 
-## No Hidden Cloud APIs
+RAG retrieval is owner-scoped and only considers eligible active document versions. Archived/superseded/incomplete documents are excluded from normal retrieval.
 
-- Application code must not embed undeclared SaaS AI calls.
-- Dependencies should prefer libraries that do not phone home by default.
-- Next.js telemetry is disabled in the frontend container (`NEXT_TELEMETRY_DISABLED=1`).
+## AI privacy
 
----
+Operational analytics and quality workflows intentionally avoid persisting/exposing:
 
-## Secret Management
+- hidden chain-of-thought/reasoning;
+- system prompts;
+- credentials or private keys;
+- raw provider payloads;
+- full retrieved passages in analytics dashboards.
 
-| Practice | Requirement |
-| --- | --- |
-| Repository | No live secrets; `.env` is gitignored |
-| Templates | `.env.example` contains non-production placeholders only |
-| Runtime | Secrets via environment |
-| Logs | Do not log passwords, `Authorization`, cookies, or DB/Redis URLs |
-| Errors | Client responses must not include stack traces or internal exception strings |
+Feedback/admin screens may show bounded answer excerpts and safe metadata required for review.
 
-Phase 1 local credentials:
+## Background processing
 
-- `POSTGRES_PASSWORD=local_development_only` (template only — change for any shared host)
+PostgreSQL is the durable job source of truth. Redis handles delivery. Worker execution uses independent database sessions, idempotency/retry controls, cancellation, stale-job recovery and dead-letter handling.
 
----
+## File handling
 
-## Phase 5 Security Posture
+Upload types and file sizes are bounded by configuration. PDF/DOCX extraction is content-oriented; scanned-image OCR is not part of the current platform.
 
-Implemented on top of Phase 4:
+## Development vs production
 
-- Conversation and message APIs require an authenticated active user
-- Conversations, messages, and message citations are scoped by **`user_id`**; cross-user IDs return `404`
-- Archived conversations reject new messages until unarchived
-- Hard delete removes conversation data permanently (CASCADE)
-- Chat retrieval reuses Phase 4 document ownership isolation
-- Optional `client_request_id` idempotency reduces duplicate sends on retries (per user + conversation)
+The included defaults are for local development. Public deployment requires:
 
-Still deferred:
+- HTTPS;
+- strong secrets and database credentials;
+- secure cookies;
+- restricted CORS;
+- managed backups and restore testing;
+- monitored database/Redis/worker health;
+- durable document storage;
+- production password-reset delivery;
+- review of logs, retention and privacy requirements.
 
-- Production rate-limit enforcement on conversation send/stream endpoints
-- Cross-conversation memory and shared org threads
-
----
-
-## Phase 4 Security Posture
-
-Implemented on top of Phase 1–3:
-
-- Argon2id password hashing; passwords never logged or returned
-- Password reset tokens stored as SHA-256 hashes only; single-use; expiring; refresh sessions revoked on reset
-- Forgot-password responses are enumeration-safe (same message for known/unknown emails)
-- Short-lived JWT access tokens (`type=access`, explicit algorithm allow-list)
-- Opaque refresh tokens stored only as SHA-256 hashes
-- Refresh rotation + family revocation on reuse
-- HttpOnly refresh cookies; access tokens stay in browser memory
-- Disabled accounts rejected for login, refresh, and bearer access
-- LLM generate/stream and document/RAG APIs require an authenticated active user
-- Document ownership isolation (list/detail/delete/retrieval scoped by `user_id`)
-- Upload validation: extension allow-list, size cap, content sniffing, path-safe storage keys
-- Local storage rejects path traversal and uses atomic writes
-- Duplicate rejection by per-user content checksum
-- CORS credentials limited to explicit approved origins
-- Structured errors without SQL/crypto/path leakage
-
-Still deferred:
-
-- Production rate-limit enforcement (login/register/refresh/upload must be limited in production)
-- Email verification / production password-reset SMTP delivery
-- Social login / OAuth providers
-- Admin tooling and org/tenant isolation
-- Tool permission model
-- Advanced prompt-injection mitigations beyond grounded prompts + size limits
-
----
-
-## Prompt Injection / Tools / Memory
-
-Documented for later phases. Phase 4–5 use grounded system prompts and retrieval scoping; Phase 2–3 also enforce input size/role limits. Conversation summaries and titles are generated via the same local LLM with bounded prompts.
-
----
-
-## Threat Model Snapshot (Local Deploy)
-
-| Threat | Mitigation direction |
-| --- | --- |
-| Secret committed to git | `.gitignore`, reviews, `make secrets-check` |
-| Credential leakage in logs/errors | Structured logging + sanitized readiness/errors |
-| DB/Redis exposed broadly | Localhost bind + Docker network |
-| Accidental model downloads | No auto-pull on build/startup; explicit `ollama pull` only |
-| Prompt/completion leakage | LLM logs omit message bodies by default |
-| Supply chain | Pinned Compose image tags where practical |
-
----
-
-## Containers
-
-- Backend runs as UID 10001 (`cortexa`)
-- Frontend runs as UID 10001 (`cortexa`)
-- Healthchecks use localhost inside containers
+See [DEPLOYMENT.md](DEPLOYMENT.md) and [GITHUB_PUBLICATION_CHECKLIST.md](GITHUB_PUBLICATION_CHECKLIST.md).

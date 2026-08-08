@@ -3,7 +3,7 @@
 import { use } from "react";
 import { useRouter } from "next/navigation";
 
-import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
+import { ResponsiveConversationSidebar } from "@/components/chat/ResponsiveConversationSidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 
 type Props = {
@@ -16,11 +16,11 @@ export default function ConversationPage({ params }: Props) {
 
   return (
     <>
-      <ConversationSidebar
+      <ResponsiveConversationSidebar
         activeId={conversationId}
         onNewConversation={(id) => router.push(`/chat/${id}`)}
       />
-      <main className="flex flex-1 flex-col overflow-hidden" data-testid="conversation-main">
+      <main id="main-content" tabIndex={-1} className="flex flex-1 flex-col overflow-hidden" data-testid="conversation-main">
         <ChatPanel conversationId={conversationId} />
       </main>
     </>

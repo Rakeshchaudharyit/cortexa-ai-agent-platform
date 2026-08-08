@@ -1,36 +1,26 @@
-# Cortexa Frontend — Phase 8
+# Cortexa Frontend
 
-See the repository root [README.md](../README.md), [docs/ENTERPRISE_ADMIN_PORTAL.md](../docs/ENTERPRISE_ADMIN_PORTAL.md),
-[docs/LONG_TERM_MEMORY.md](../docs/LONG_TERM_MEMORY.md),
-[docs/AGENT_TOOLS.md](../docs/AGENT_TOOLS.md), [docs/CONVERSATIONS.md](../docs/CONVERSATIONS.md),
-and [docs/RAG.md](../docs/RAG.md) for setup.
+Next.js + TypeScript frontend for the Cortexa AI Knowledge Platform.
 
-## Surfaces
+## Main product surfaces
 
-- Platform overview (capability cards, quick actions)
-- System status (API, database, Redis, LLM, RAG/embeddings, agent tools, memory flag)
-- Auth (`/login`, `/register`, header session controls)
-- Authenticated **Documents & grounded Q&A** panel on the home page
-- **Chat** (`/chat`, `/chat/[conversationId]`) — General Agent and Document Knowledge modes,
-  streaming composer, citations, live tool activity, memory indicators
-- **Tool history** (`/tools`) — owned agent tool execution audit trail
-- **Memories** (`/memories`) — review, confirm, archive, delete, and configure long-term memory
-- **Admin portal** (`/admin/*`) — admin-only SaaS console (users, documents, conversations,
-  memories, tools, analytics, audit, system health, settings). Hidden from normal users;
-  see [ENTERPRISE_ADMIN_PORTAL.md](../docs/ENTERPRISE_ADMIN_PORTAL.md).
+- public landing page (`/`)
+- guided product tour (`/demo`)
+- authenticated workspace (`/workspace`)
+- grounded knowledge chat (`/chat`)
+- memories and safe AI tools
+- enterprise admin console (`/admin/*`)
+- RAG evaluations, feedback review and AI analytics
+- background operations/job monitoring
 
-## API fetching decision
+## API access
 
-Uses **client-side fetching** for backend APIs.
+The browser uses `NEXT_PUBLIC_API_BASE_URL` for client-side API requests. Access tokens remain memory-only; refresh sessions use HttpOnly cookies. Streaming chat uses `fetch` + `ReadableStream` so authorization headers and SSE-style streaming can coexist.
 
-Rationale:
-- Browser calls use `NEXT_PUBLIC_API_BASE_URL` (host-reachable `http://localhost:8000` or remapped ports such as `18000`).
-- Server-side fetch inside the frontend container would need a different internal URL (`http://backend:8000`).
-- Client-side fetching keeps unavailable/offline states honest and avoids SSR crashes when the backend is down.
-- Access tokens remain in memory only; refresh uses HttpOnly cookies (`credentials: "include"`).
-- Conversation streaming uses `fetch` + `ReadableStream` in `services/conversations.ts` so SSE requests can send the bearer token (unlike `EventSource`).
+For local development, keep the browser frontend/API hostnames consistent (`localhost` with `localhost`, or `127.0.0.1` with `127.0.0.1`) so refresh-cookie behavior remains predictable.
 
-## Docker development notes
+## Docker development
 
-- Compose bind-mounts `./frontend` into `/app` for hot reload.
-- Container-owned volumes keep `/app/node_modules` and `/app/.next` inside Docker so host directories do not hide generated assets or installed dependencies.
+Compose bind-mounts the frontend source into `/app` for development and keeps `node_modules` / `.next` in container-owned named volumes.
+
+See the root [README](../README.md) and [Demo Guide](../docs/DEMO_GUIDE.md).

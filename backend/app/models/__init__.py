@@ -16,7 +16,11 @@ from app.models.conversation import (
     Message,
     MessageCitation,
 )
-from app.models.document import Document, DocumentChunk
+from app.models.document import (
+    Document, DocumentChunk, DocumentFolder, KnowledgeDocument, KnowledgeDocumentEvent,
+)
+from app.models.evaluation import RagEvaluationCase, RagEvaluationResult, RagEvaluationRun
+from app.models.feedback import MessageFeedback
 from app.models.enums import (
     AgentApprovalStatus,
     AgentExecutionMode,
@@ -31,6 +35,7 @@ from app.models.enums import (
     MemoryStatus,
     MessageRole,
     MessageStatus,
+    JobStatus,
     ToolExecutionStatus,
     UserRole,
     UserStatus,
@@ -40,6 +45,8 @@ from app.models.password_reset import PasswordResetToken
 from app.models.refresh_session import RefreshSession
 from app.models.tool_execution import ToolExecution
 from app.models.user import User
+
+from app.models.job import BackgroundJob
 
 __all__ = [
     "DEFAULT_CONVERSATION_TITLE",
@@ -55,11 +62,15 @@ __all__ = [
     "AgentTask",
     "AgentTaskStatus",
     "ApplicationMetadata",
+    "BackgroundJob",
     "Conversation",
     "ConversationStatus",
     "Document",
     "DocumentChunk",
+    "DocumentFolder",
     "DocumentStatus",
+    "KnowledgeDocument",
+    "KnowledgeDocumentEvent",
     "MemoryAuditEvent",
     "MemoryAuditEventType",
     "MemoryCategory",
@@ -68,10 +79,15 @@ __all__ = [
     "MemoryStatus",
     "Message",
     "MessageCitation",
+    "MessageFeedback",
     "MessageRole",
     "MessageStatus",
+    "JobStatus",
     "PasswordResetToken",
     "PlatformSetting",
+    "RagEvaluationCase",
+    "RagEvaluationResult",
+    "RagEvaluationRun",
     "RefreshSession",
     "ToolConfiguration",
     "ToolExecution",

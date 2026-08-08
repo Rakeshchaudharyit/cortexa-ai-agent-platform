@@ -1,192 +1,108 @@
-# Architecture
+# System Architecture
 
-Cortexa AI Agent Platform — system architecture.
+Cortexa AI Knowledge Platform is a modular AI knowledge SaaS architecture built around five boundaries: browser experience, HTTP API, durable persistence, background execution, and provider integrations.
 
-Phase 0 defined the design contract. Phase 1 delivered the application foundation. Phase 2 adds a provider-neutral LLM layer with Ollama as the first local provider. Phase 3 adds authentication and user sessions. Phase 4 adds documents, embeddings (pgvector), and grounded RAG. Phase 5 adds persistent conversations, multi-turn RAG chat, streaming, and the `/chat` UI. Agent tools, cross-conversation memory, and voice remain unimplemented.
+## Design principles
 
----
+1. **Durable state over in-memory state** — conversations, document versions, evaluation results, feedback, and jobs persist in PostgreSQL.
+2. **Request/worker separation** — long-running ingestion and evaluation workloads execute outside API request lifecycles.
+3. **Owner-scoped knowledge access** — retrieval and document operations are scoped to the authenticated user unless an authorized admin workflow explicitly requires broader visibility.
+4. **Provider boundaries** — LLM, embedding, Redis, storage, and database concerns stay behind service/provider layers.
+5. **Measurable AI quality** — evaluation, feedback, latency, citation, and no-answer signals are persisted and observable.
+6. **Governed retrieval** — only active, ready, non-archived document versions participate in RAG.
+7. **Safe operations** — queue retries, cancellation, dead-letter handling, idempotency, and worker recovery are explicit product behavior.
 
-## Design Principles
-
-1. **Clean Architecture** — dependencies point inward toward domain/services; frameworks sit at the edges.
-2. **Dependency Injection** — services receive infrastructure collaborators through construction / app state, not ad-hoc globals in routes.
-3. **Repository Pattern** — persistence is abstracted (domain repositories arrive with business tables in later phases).
-4. **Provider Pattern** — every external system is accessed through a provider module (Redis; Ollama via `app/llm`).
-5. **SOLID** — small, single-purpose modules with stable interfaces.
-6. **Strong typing** — Pydantic v2 on the backend; TypeScript strict on the frontend.
-
----
-
-## Phase 5 Runtime Stack
-
-```
-Frontend (Next.js — status, auth, documents, /chat)
-        ↓  HTTP + credentials (cookies) / Bearer access token
-FastAPI API routes
-        ↓
-Auth / Health / system / LLM / Documents / RAG / Embeddings / Conversations / Chat services
-        ↓
-db/ models (users, refresh_sessions, documents, document_chunks, conversations, messages, message_citations)
-+ storage/local + documents/* + embeddings/* + conversations/* + llm/providers/ollama
-        ↓
-PostgreSQL 17 + pgvector  |  Redis 7.4  |  Ollama (chat + embeddings)
-```
-
-Backend talks to Ollama over the Compose network at `http://ollama:11434`. Host port `11435` is for optional host tooling only and is never hardcoded in application logic.
-
----
-
-## Layer Responsibilities
-
-| Layer | Responsibility | May call | Must not call |
-| --- | --- | --- | --- |
-| **Frontend** | Status, auth, documents, chat UI | Backend HTTP APIs | Ollama, DB, Redis |
-| **FastAPI (API)** | HTTP, CORS, validation, SSE | Services | DB engines, Redis, Ollama HTTP |
-| **Service Layer** | Orchestration + request limits | Providers / LLM interface | Framework request objects for infra |
-| **LLM providers** | Ollama transport + normalization | Ollama HTTP | Route handlers |
-| **Provider Layer** | Redis / shared HTTP client | Redis / httpx | HTTP route handlers |
-| **db/** | Async engine, sessions, `SELECT 1` | PostgreSQL | Providers, HTTP |
-
----
-
-## Backend Package Layout (Phase 5)
-
-```text
-backend/
-├── app/
-│   ├── api/routes/     # health, system, llm, auth, documents, rag, embeddings, conversations
-│   ├── api/deps.py     # auth + service deps (documents, rag, chat, conversations)
-│   ├── conversations/  # schemas, context builder, domain exceptions
-│   ├── core/           # config, exceptions, logging, lifespan
-│   ├── db/             # base, session, health
-│   ├── models/         # User, RefreshSession, Document, DocumentChunk, Conversation, Message, …
-│   ├── security/       # passwords (Argon2id), JWT + refresh helpers
-│   ├── documents/      # validation, extraction, chunking, schemas
-│   ├── embeddings/     # provider protocol, factory, Ollama embeddings
-│   ├── storage/        # local filesystem object storage
-│   ├── llm/            # provider protocol, factory, Ollama chat
-│   ├── providers/      # redis, shared httpx client
-│   ├── schemas/        # Pydantic DTOs
-│   ├── services/       # health, llm, auth, documents, retrieval, rag, embeddings, conversations, messages, chat
-│   └── main.py
-├── alembic/
-└── tests/
-```
-
-Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
-Documents / RAG details: [RAG.md](RAG.md).
-Conversations / chat: [CONVERSATIONS.md](CONVERSATIONS.md).
-
----
-
-## LLM Provider Abstraction
-
-```mermaid
-flowchart LR
-  API[api/routes/llm.py] --> Svc[services/llm.py]
-  Svc --> Proto[llm.base.LLMProvider]
-  Proto --> Factory[llm.factory]
-  Factory --> Ollama[llm.providers.ollama]
-  Ollama --> HTTP[providers.http AsyncClient]
-  HTTP --> Upstream[Ollama /api/tags /api/chat]
-```
-
-- Routes never construct `OllamaProvider` directly.
-- Factory resolves `LLM_PROVIDER` (Phase 2: `ollama` only).
-- Future OpenAI/Anthropic providers plug into the factory without rewriting API routes.
-
----
-
-## Readiness vs LLM Status
-
-| Endpoint | Purpose | Fails when |
-| --- | --- | --- |
-| `GET /health`, `GET /health/live` | Process liveness | Process down |
-| `GET /ready`, `GET /health/ready` | Essential infra readiness | PostgreSQL unreachable, Alembic behind head, required conversation tables missing, or Redis unhealthy |
-| `GET /api/v1/llm/status` | AI provider/model diagnostics | Never fails readiness; reports provider/model state |
-
-Ollama being down or the model missing does **not** make `/ready` return 503.
-
-Backend containers apply `alembic upgrade head` in the entrypoint **before** Uvicorn creates the DB pool. After applying migrations to a running instance, **restart the backend** so asyncpg does not keep stale type/relation caches.
-
----
-
-## LLM API Surface
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/v1/llm/status` | Provider reachability + model availability |
-| `POST` | `/api/v1/llm/generate` | Non-streaming generation |
-| `POST` | `/api/v1/llm/stream` | SSE streaming generation |
-
-### SSE event schema
-
-| Event | Data |
-| --- | --- |
-| `start` | `{provider, model}` |
-| `delta` | `{content}` |
-| `complete` | `{provider, model, content, finish_reason?, usage?, latency_ms?}` |
-| `error` | `{code, message}` or `{error:{code,message}}` on conversation routes |
-
-Conversation streams add `citation` and `metadata` events and a richer `complete` payload — see [CONVERSATIONS.md](CONVERSATIONS.md).
-
-Raw Ollama payloads are never forwarded to clients.
-
----
-
-## Conversation Architecture (Phase 5)
+## Runtime topology
 
 ```mermaid
 flowchart TB
-  UI["Next.js /chat"] --> API["api/routes/conversations.py"]
-  API --> ConvSvc["services/conversations.py"]
-  API --> ChatSvc["services/chat.py"]
-  ChatSvc --> MsgSvc["services/messages.py"]
-  ChatSvc --> Ret["services/retrieval.py"]
-  ChatSvc --> Ctx["conversations/context.py"]
-  ChatSvc --> LLM["services/llm.py"]
-  ConvSvc --> DB[(PostgreSQL)]
-  MsgSvc --> DB
-  Ret --> DB
+    U[Browser] --> F[Next.js Frontend]
+    F -->|REST / SSE| A[FastAPI API]
+    A --> S[Application Services]
+    S --> DB[(PostgreSQL + pgvector)]
+    S --> R[(Redis)]
+    S --> FS[(Document Storage)]
+    S --> AI[Ollama / Provider Interfaces]
+    R --> W[Background Worker]
+    W --> DB
+    W --> FS
+    W --> AI
 ```
 
-### Message lifecycle
+Docker Compose runs six primary services: `frontend`, `backend`, `worker`, `postgres`, `redis`, and `ollama`.
 
-1. **Send** — `require_active_conversation` (rejects archived). Optional idempotency via `client_request_id`.
-2. **Persist user** — append with monotonic `sequence_number`; optional idempotency unique constraint.
-3. **Assistant pending** — create `pending` assistant row before generation/stream.
-4. **Retrieve** — scope from `document_ids` (all docs / none / subset); see [CONVERSATIONS.md](CONVERSATIONS.md).
-5. **Build context** — priority: current message → RAG → history → summary → trim oldest.
-6. **Generate** — LLM call, or no-context fallback without LLM when retrieval ran but returned no chunks.
-7. **Finalize** — store content, citations (`MessageCitation` snapshots), usage fields, `grounded` flag.
-8. **Post-turn** — optional auto-title (first assistant only) and rolling summary (failures non-fatal).
+## Backend layers
 
-### Edit / regenerate
+| Layer | Responsibility |
+| --- | --- |
+| `api/routes` | HTTP boundary, validation, authentication, response mapping |
+| `services` | Business workflows: chat, RAG, documents, evaluations, analytics |
+| `jobs` | Durable job creation, queue transport, worker execution and recovery |
+| `models` | SQLAlchemy persistence models |
+| `documents` | Extraction/chunking contracts |
+| `embeddings` | Embedding provider abstraction |
+| `llm` | LLM provider abstraction |
+| `providers` | Shared infrastructure clients such as Redis/httpx |
+| `security` | Password hashing, JWT and refresh-session helpers |
+| `admin` | Admin policies/settings and safe operational helpers |
 
-- **Edit** supersedes the latest user message and following active turns; does not auto-reply.
-- **Regenerate** supersedes the latest assistant only; reuses the latest user message.
+## Data domains
 
-### Ownership
+The primary persisted domains are:
 
-All conversation routes resolve resources by `(user_id, conversation_id)` (and message ownership). See [SECURITY.md](SECURITY.md).
+- users and refresh sessions
+- documents, chunks, folders, logical knowledge documents and lifecycle events
+- conversations, messages and message citations
+- long-term memories
+- tools and tool executions
+- RAG evaluation cases/runs/results
+- user message feedback and admin review state
+- durable background jobs
+- audit/admin operational data
 
----
+## Request-bound vs background work
 
-## Error Mapping
+### Request-bound
 
-| Condition | HTTP | Code |
-| --- | --- | --- |
-| Invalid client request / limits | 422 | `validation_error` / `llm_input_too_large` / `llm_max_tokens_exceeded` |
-| Provider unreachable | 503 | `llm_provider_unavailable` |
-| Model missing | 424 | `llm_model_unavailable` |
-| Provider timeout | 504 | `llm_request_timeout` |
-| Invalid upstream response | 502 | `llm_invalid_response` |
-| Controlled generation failure | 502 | `llm_generation_error` |
+- authentication/session refresh
+- conversation CRUD
+- streaming chat generation
+- retrieval/query orchestration
+- analytics reads
+- admin review actions
 
-All errors use the Phase 1 envelope: `{error:{code,message,details}, request_id}`.
+### Background worker
 
----
+- document ingestion
+- document re-indexing
+- evaluation runs
+- evaluation CSV exports
+- queue recovery/retry handling
 
-## Frontend Architecture (Phase 5)
+This separation keeps the browser responsive while AI/provider workloads continue independently.
 
-The status page remains (health, readiness, LLM, feature flags). Phase 3 auth screens remain. Phase 4 adds an authenticated **Documents & grounded Q&A** panel on the home page. Phase 5 adds **`/chat`** — conversation sidebar, message list, streaming composer, and citation cards (`frontend/components/chat/*`). Access tokens stay memory-only; streaming uses fetch + `ReadableStream` with bearer auth.
+## RAG invariants
+
+A document version is eligible for retrieval only when it is owned by the requesting user and is ready, active, and not archived. Retrieval deduplicates repetitive passages, enforces a context budget, and validates citation markers against the citation set actually provided to the model.
+
+See [RAG.md](RAG.md) and [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md).
+
+## Quality loop
+
+Cortexa treats quality as a product workflow:
+
+1. production chat produces measurable latency/retrieval/citation metadata;
+2. reusable evaluation cases test RAG behavior;
+3. users submit Helpful / Not helpful feedback;
+4. admins review and resolve quality issues;
+5. analytics combine evaluation, feedback, reliability, citation and knowledge-health signals.
+
+## Operational model
+
+Redis provides delivery, while PostgreSQL remains the durable job ledger. Job state includes progress, retries, cancellation, idempotency, heartbeat/lock metadata, failure state, and dead-letter/requeue operations. Redis loss therefore does not erase durable job history.
+
+## Deployment boundary
+
+The included Compose stack is optimized for local/demo environments. Production deployments should provide HTTPS termination, managed secrets, durable backups, monitored PostgreSQL/Redis, object storage where appropriate, and an independently scalable worker tier.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md).

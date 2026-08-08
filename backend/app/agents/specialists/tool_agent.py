@@ -202,6 +202,17 @@ class ToolSpecialist(BaseAgent):
                 }
 
         arguments = self._build_arguments(tool_name, context, task)
+        if tool_name == "calculator" and not str(arguments.get("expression") or "").strip():
+            # A percentage without a baseline amount is not a valid calculation.
+            # Treat it as a safe partial result so final synthesis can explain
+            # what information is missing instead of fabricating a zero value.
+            return True, {
+                "execution_id": None,
+                "result": {
+                    "calculation_performed": False,
+                    "reason": "A numeric baseline amount was not available.",
+                },
+            }
         try:
             execution, result = await self.tool_executor.execute(
                 session=session,
@@ -265,7 +276,7 @@ class ToolSpecialist(BaseAgent):
                 )
                 if pct:
                     expression = f"({pct.group(1)}/100)*{pct.group(2)}"
-            return {"expression": expression or "0"}
+            return {"expression": expression}
         if tool_name == "current_datetime":
             tz_match = _TZ.search(text)
             return {"timezone": tz_match.group("tz") if tz_match else "UTC"}

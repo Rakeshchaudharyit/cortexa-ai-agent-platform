@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,11 @@ from app.admin.schemas import (
     AdminAiActivitySummary,
     AdminAnalyticsPoint,
     AdminAnalyticsResponse,
+    AdminEvaluationTrendPoint,
+    AdminFeedbackSummary,
+    AdminKnowledgeHealth,
+    AdminQualitySummary,
+    AdminRankedMetric,
     AdminAuditEventSummary,
     AdminAuditListResponse,
     AdminConversationDeletionImpact,
@@ -74,15 +79,20 @@ from app.admin.settings import (
     validate_setting_value,
 )
 from app.core.config import Settings
-from app.models.document import EMBEDDING_DIMENSION
+from app.models.document import EMBEDDING_DIMENSION, Document
+from app.models.conversation import Message, MessageCitation
 from app.models.enums import (
     DocumentStatus,
     MemoryStatus,
+    MessageRole,
+    MessageStatus,
     UserRole,
     UserStatus,
 )
 from app.models.memory import UserMemory
 from app.models.user import User
+from app.models.evaluation import RagEvaluationRun
+from app.models.feedback import MessageFeedback
 from app.services.auth import AuthService
 from app.services.tools import _summary_from_mapping
 from app.tools.registry import ToolRegistry, ToolRuntimeOverride
@@ -224,7 +234,7 @@ class AdminService:
                 successful_requests=None,
                 failed_requests=counts["failed_ai_requests"],
                 available=None,
-                note="Token/cost analytics unavailable in Phase 8",
+                note="Token/cost analytics are unavailable for this data source",
             ),
             document_pipeline=[
                 AdminStatusCount(status="ready", count=counts["documents_ready"]),
@@ -1186,9 +1196,9 @@ class AdminService:
     async def get_analytics(
         self, session: AsyncSession, *, days: Literal[7, 30, 90] = 30
     ) -> AdminAnalyticsResponse:
+        """Return bounded, content-free platform and AI observability metrics."""
         start, end = daterange_days(days)
         base = empty_analytics_points(start, end)
-        # Reuse usage trend for conversations/messages/tools within window
         trend = await self.repo.usage_trend(session, days=days)
         series = merge_series(
             base,
@@ -1204,11 +1214,11 @@ class AdminService:
                 for point in trend
             ],
         )
-        # New users by day
-        from sqlalchemy import Date, cast, func, select
 
+        from sqlalchemy import Date, cast, func, select
         from app.admin.repository import text_interval_days
         from app.models.user import User as UserModel
+        from app.models.document import Document as DocModel
 
         user_rows = (
             await session.execute(
@@ -1217,11 +1227,7 @@ class AdminService:
                 .group_by("day")
             )
         ).all()
-        series = merge_series(
-            series,
-            [(day, {"new_users": int(count)}) for day, count in user_rows],
-        )
-        from app.models.document import Document as DocModel
+        series = merge_series(series, [(day, {"new_users": int(count)}) for day, count in user_rows])
 
         doc_rows = (
             await session.execute(
@@ -1230,34 +1236,212 @@ class AdminService:
                 .group_by("day")
             )
         ).all()
-        series = merge_series(
-            series,
-            [(day, {"document_uploads": int(count)}) for day, count in doc_rows],
-        )
+        series = merge_series(series, [(day, {"document_uploads": int(count)}) for day, count in doc_rows])
+
+        message_rows = (
+            await session.execute(
+                select(
+                    Message.created_at, Message.status, Message.grounded, Message.latency_ms,
+                    Message.total_tokens, Message.finish_reason, Message.error_code,
+                    Message.provider, Message.model, Message.message_metadata,
+                ).where(
+                    Message.created_at >= start,
+                    Message.created_at <= end,
+                    Message.role == MessageRole.assistant,
+                    Message.is_active.is_(True),
+                )
+            )
+        ).all()
+
+        by_day = {item["date"]: item for item in series}
+        providers: dict[str, int] = {}
+        models: dict[str, int] = {}
+        latency_values: list[float] = []
+        retrieval_values: list[float] = []
+        generation_values: list[float] = []
+        first_token_values: list[float] = []
+
+        for row in message_rows:
+            day = row.created_at.date().isoformat()
+            point = by_day.get(day)
+            if point is None:
+                continue
+            metadata = row.message_metadata if isinstance(row.message_metadata, dict) else {}
+            timing = metadata.get("rag_timing") if isinstance(metadata.get("rag_timing"), dict) else {}
+            citation_count = int(timing.get("citation_count") or 0)
+            retrieval_count = int(timing.get("retrieved_chunk_count") or 0)
+            is_rag = bool(row.grounded is not None or retrieval_count or row.finish_reason == "no_context")
+            failed = bool(row.status == MessageStatus.failed or row.error_code)
+            no_answer = bool(row.finish_reason == "no_context")
+
+            if is_rag:
+                point["rag_queries"] += 1
+            point["failed_responses" if failed else "successful_responses"] += 1
+            if no_answer:
+                point["no_answer_responses"] += 1
+            point["citation_count"] += citation_count
+            point["total_tokens"] += int(row.total_tokens or 0)
+
+            def add_metric(key: str, destination: list[float]) -> None:
+                value = timing.get(key)
+                if isinstance(value, (int, float)):
+                    destination.append(float(value))
+
+            if row.latency_ms is not None:
+                latency_values.append(float(row.latency_ms))
+            add_metric("retrieval_ms", retrieval_values)
+            add_metric("model_total_ms", generation_values)
+            add_metric("model_time_to_first_token_ms", first_token_values)
+
+            provider = row.provider or "unknown"
+            model = row.model or "unknown"
+            providers[provider] = providers.get(provider, 0) + 1
+            models[model] = models.get(model, 0) + 1
+
+        def average(values: list[float]) -> float | None:
+            return round(sum(values) / len(values), 2) if values else None
+
+        # Daily averages use only values recorded on that day.
+        for day, point in by_day.items():
+            day_rows = [row for row in message_rows if row.created_at.date().isoformat() == day]
+            day_latency: list[float] = []
+            day_retrieval: list[float] = []
+            day_generation: list[float] = []
+            day_first_token: list[float] = []
+            for row in day_rows:
+                if row.latency_ms is not None:
+                    day_latency.append(float(row.latency_ms))
+                metadata = row.message_metadata if isinstance(row.message_metadata, dict) else {}
+                timing = metadata.get("rag_timing") if isinstance(metadata.get("rag_timing"), dict) else {}
+                for key, dest in (
+                    ("retrieval_ms", day_retrieval),
+                    ("model_total_ms", day_generation),
+                    ("model_time_to_first_token_ms", day_first_token),
+                ):
+                    value = timing.get(key)
+                    if isinstance(value, (int, float)):
+                        dest.append(float(value))
+            point["ai_latency_ms"] = average(day_latency)
+            point["retrieval_latency_ms"] = average(day_retrieval)
+            point["generation_latency_ms"] = average(day_generation)
+            point["first_token_latency_ms"] = average(day_first_token)
 
         points = [AdminAnalyticsPoint(**item) for item in series]
+        successful = sum(p.successful_responses for p in points)
+        failed = sum(p.failed_responses for p in points)
+        total_responses = successful + failed
         totals: dict[str, int | float | None] = {
             "new_users": sum(p.new_users for p in points),
             "conversations": sum(p.conversations for p in points),
             "messages": sum(p.messages for p in points),
             "document_uploads": sum(p.document_uploads for p in points),
             "tool_executions": sum(p.tool_executions for p in points),
-            "rag_queries": None,
-            "ai_latency_ms": None,
-            "retrieval_latency_ms": None,
-            "first_token_latency_ms": None,
+            "rag_queries": sum(p.rag_queries for p in points),
+            "successful_responses": successful,
+            "failed_responses": failed,
+            "success_rate": round(successful / total_responses, 4) if total_responses else None,
+            "no_answer_responses": sum(p.no_answer_responses for p in points),
+            "citation_count": sum(p.citation_count for p in points),
+            "total_tokens": sum(p.total_tokens for p in points),
+            "ai_latency_ms": average(latency_values),
+            "retrieval_latency_ms": average(retrieval_values),
+            "generation_latency_ms": average(generation_values),
+            "first_token_latency_ms": average(first_token_values),
         }
+        # Enterprise quality roll-up from evaluations, feedback, success, and citation coverage.
+        feedback_rows = (await session.execute(
+            select(MessageFeedback.sentiment, MessageFeedback.status, func.count())
+            .where(MessageFeedback.created_at >= start, MessageFeedback.created_at <= end)
+            .group_by(MessageFeedback.sentiment, MessageFeedback.status)
+        )).all()
+        feedback_total = sum(int(count) for _sentiment, _status, count in feedback_rows)
+        helpful = sum(int(count) for sentiment, _status, count in feedback_rows if sentiment == "helpful")
+        not_helpful = sum(int(count) for sentiment, _status, count in feedback_rows if sentiment == "not_helpful")
+        open_reviews = sum(int(count) for _sentiment, status, count in feedback_rows if status == "open")
+        helpful_rate = round(helpful / feedback_total, 4) if feedback_total else None
+
+        latest_eval = (await session.execute(
+            select(RagEvaluationRun)
+            .where(RagEvaluationRun.status == "completed")
+            .order_by(RagEvaluationRun.created_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        evaluation_score = round(float(latest_eval.average_score), 2) if latest_eval else None
+        eval_rows = (await session.execute(
+            select(RagEvaluationRun.created_at, RagEvaluationRun.average_score,
+                   RagEvaluationRun.passed_cases, RagEvaluationRun.total_cases)
+            .where(RagEvaluationRun.status == "completed", RagEvaluationRun.created_at >= start)
+            .order_by(RagEvaluationRun.created_at.asc())
+            .limit(30)
+        )).all()
+        evaluation_trend = [
+            AdminEvaluationTrendPoint(
+                date=created.date().isoformat(),
+                average_score=round(float(score), 2),
+                pass_rate=round((passed / total) * 100, 2) if total else 0.0,
+                total_cases=int(total),
+            )
+            for created, score, passed, total in eval_rows
+        ]
+
+        rag_queries = int(totals["rag_queries"] or 0)
+        cited_rag_responses = sum(1 for row in message_rows if isinstance(row.message_metadata, dict) and int(((row.message_metadata.get("rag_timing") or {}).get("citation_count") or 0)) > 0)
+        citation_coverage = round((cited_rag_responses / rag_queries) * 100, 2) if rag_queries else None
+        success_score = round(float(totals["success_rate"]) * 100, 2) if totals["success_rate"] is not None else None
+        feedback_score = round(helpful_rate * 100, 2) if helpful_rate is not None else None
+        components = [(evaluation_score, 0.35), (feedback_score, 0.25), (success_score, 0.20), (citation_coverage, 0.20)]
+        available_components = [(value, weight) for value, weight in components if value is not None]
+        quality_score = round(sum(value * weight for value, weight in available_components) / sum(weight for _value, weight in available_components), 1) if available_components else None
+        quality_label = "Insufficient data" if quality_score is None else ("Excellent" if quality_score >= 90 else "Good" if quality_score >= 75 else "Needs attention" if quality_score >= 60 else "At risk")
+
+        doc_counts = dict((str(status), int(count)) for status, count in (await session.execute(
+            select(Document.status, func.count()).group_by(Document.status)
+        )).all())
+        total_documents = sum(doc_counts.values())
+        zero_chunks = int((await session.execute(select(func.count()).select_from(Document).where(Document.chunk_count == 0))).scalar_one())
+        stale_cutoff = datetime.now(UTC) - timedelta(days=90)
+        stale_documents = int((await session.execute(select(func.count()).select_from(Document).where(Document.updated_at < stale_cutoff))).scalar_one())
+        duplicate_groups = int((await session.execute(
+            select(func.count()).select_from(
+                select(Document.checksum_sha256).group_by(Document.checksum_sha256).having(func.count() > 1).subquery()
+            )
+        )).scalar_one())
+        ready_documents = doc_counts.get(DocumentStatus.ready.value, 0)
+        unhealthy = doc_counts.get(DocumentStatus.failed.value, 0) + zero_chunks + stale_documents
+        knowledge_score = round(max(0.0, 100.0 - (unhealthy / max(total_documents, 1)) * 100), 1) if total_documents else None
+
+        top_doc_rows = (await session.execute(
+            select(MessageCitation.filename, func.count().label("uses"))
+            .where(MessageCitation.created_at >= start, MessageCitation.created_at <= end)
+            .group_by(MessageCitation.filename)
+            .order_by(func.count().desc())
+            .limit(8)
+        )).all()
+        top_documents = [AdminRankedMetric(label=filename, value=int(uses), secondary="citations") for filename, uses in top_doc_rows]
+        top_models = [AdminRankedMetric(label=model, value=count, secondary="responses") for model, count in sorted(models.items(), key=lambda item: item[1], reverse=True)[:8]]
+
         return AdminAnalyticsResponse(
             range_days=days,
             points=points,
             totals=totals,
-            unavailable=[
-                "rag_queries",
-                "ai_latency_ms",
-                "retrieval_latency_ms",
-                "first_token_latency_ms",
-                "token_costs",
-            ],
+            quality=AdminQualitySummary(
+                score=quality_score, evaluation_score=evaluation_score, feedback_score=feedback_score,
+                success_score=success_score, citation_coverage_score=citation_coverage, label=quality_label,
+            ),
+            knowledge_health=AdminKnowledgeHealth(
+                total_documents=total_documents, ready_documents=ready_documents,
+                pending_documents=doc_counts.get(DocumentStatus.pending.value, 0),
+                processing_documents=doc_counts.get(DocumentStatus.processing.value, 0),
+                failed_documents=doc_counts.get(DocumentStatus.failed.value, 0),
+                zero_chunk_documents=zero_chunks, stale_documents=stale_documents,
+                duplicate_content_groups=duplicate_groups, health_score=knowledge_score,
+            ),
+            feedback=AdminFeedbackSummary(
+                total=feedback_total, helpful=helpful, not_helpful=not_helpful,
+                open_reviews=open_reviews, helpful_rate=helpful_rate,
+            ),
+            top_documents=top_documents, top_models=top_models, evaluation_trend=evaluation_trend,
+            unavailable=["token_costs"],
             generated_at=datetime.now(UTC),
         )
 

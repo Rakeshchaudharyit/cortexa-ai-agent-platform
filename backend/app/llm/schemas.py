@@ -204,6 +204,7 @@ class StreamEventType(str, Enum):
     safety_checked = "safety_checked"
     task_ready = "task_ready"
     task_started = "task_started"
+    task_retrying = "task_retrying"
     task_completed = "task_completed"
     task_failed = "task_failed"
     task_skipped = "task_skipped"

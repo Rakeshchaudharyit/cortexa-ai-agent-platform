@@ -34,12 +34,18 @@ def empty_analytics_points(start: datetime, end: datetime) -> list[dict[str, Any
             "messages": 0,
             "document_uploads": 0,
             "rag_queries": 0,
+            "successful_responses": 0,
+            "failed_responses": 0,
+            "no_answer_responses": 0,
+            "citation_count": 0,
+            "total_tokens": 0,
             "memory_actions": 0,
             "tool_executions": 0,
             "tool_succeeded": 0,
             "tool_failed": 0,
             "ai_latency_ms": None,
             "retrieval_latency_ms": None,
+            "generation_latency_ms": None,
             "first_token_latency_ms": None,
         }
         for day in iter_date_strings(start, end)

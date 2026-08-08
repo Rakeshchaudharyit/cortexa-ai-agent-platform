@@ -1,5 +1,5 @@
 # Sample Data
 
-Non-secret fixtures for demos and tests in later phases.
+Do not place credentials, private customer documents, production database exports, or proprietary source material in this directory.
 
-Phase 0 contains no datasets. Do not place credentials, private documents, or production exports here.
+Public portfolio demo documents live under [`../demo/knowledge`](../demo/knowledge) and are intentionally safe to publish.

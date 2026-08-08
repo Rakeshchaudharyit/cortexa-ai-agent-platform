@@ -2,33 +2,197 @@
 
 :root {
   color-scheme: dark;
-  --bg-0: #07111f;
-  --bg-1: #0b1a2e;
+  --bg-0: #050b14;
+  --bg-1: #081321;
+  --bg-2: #0b1828;
+  --surface: rgba(15, 29, 46, 0.72);
+  --surface-strong: rgba(13, 25, 40, 0.92);
+  --surface-soft: rgba(255, 255, 255, 0.035);
+  --border: rgba(148, 163, 184, 0.13);
+  --border-strong: rgba(34, 211, 238, 0.22);
   --accent: #22d3ee;
-  --ink: #e2e8f0;
+  --accent-strong: #67e8f9;
+  --ink: #e8eef7;
+  --muted: #94a3b8;
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.28);
 }
 
-html,
+html {
+  min-height: 100%;
+  background: var(--bg-0);
+  scroll-behavior: smooth;
+}
+
 body {
   min-height: 100%;
-}
-
-body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.16), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(56, 189, 248, 0.1), transparent 50%),
-    linear-gradient(160deg, var(--bg-0), var(--bg-1) 55%, #081018);
+    radial-gradient(900px 520px at 8% -8%, rgba(34, 211, 238, 0.13), transparent 58%),
+    radial-gradient(760px 460px at 94% 4%, rgba(59, 130, 246, 0.09), transparent 56%),
+    linear-gradient(155deg, var(--bg-0), var(--bg-1) 48%, #07101b 100%);
   font-family:
+    Inter,
     "Segoe UI",
     "Helvetica Neue",
     ui-sans-serif,
     system-ui,
     -apple-system,
     sans-serif;
+  text-rendering: optimizeLegibility;
 }
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.22);
+  color: #ecfeff;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-color: rgba(34, 211, 238, 0.7);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.72);
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  color: #e2e8f0;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b;
+}
+
+/* Shared production UI primitives. Existing screens can adopt these incrementally. */
+@layer components {
+  .cx-shell {
+    @apply min-h-screen text-slate-100;
+    background:
+      radial-gradient(1000px 520px at 0% -10%, rgba(34, 211, 238, 0.11), transparent 52%),
+      linear-gradient(160deg, #050c16, #091624 48%, #06101a);
+  }
+
+  .cx-panel {
+    @apply rounded-2xl border border-white/10 bg-slate-950/45 backdrop-blur-sm;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  }
+
+  .cx-panel-soft {
+    @apply rounded-xl border border-white/10 bg-white/[0.035];
+  }
+
+  .cx-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/80;
+  }
+
+  .cx-page-title {
+    @apply text-2xl font-semibold tracking-tight text-white sm:text-3xl;
+  }
+
+  .cx-page-description {
+    @apply max-w-3xl text-sm leading-6 text-slate-400 sm:text-base;
+  }
+
+  .cx-button-primary {
+    @apply inline-flex min-h-10 items-center justify-center rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .cx-button-secondary {
+    @apply inline-flex min-h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-400/25 hover:bg-white/[0.075] hover:text-white disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .cx-button-danger {
+    @apply inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-400/15 bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .cx-input {
+    @apply w-full rounded-xl border border-white/10 bg-slate-950/70 px-3.5 py-2.5 text-sm text-slate-100 transition placeholder:text-slate-600 focus:border-cyan-400/40;
+  }
+
+  .cx-kpi {
+    @apply rounded-2xl border border-white/10 bg-white/[0.035] p-5;
+  }
+
+  .cx-divider {
+    @apply border-white/10;
+  }
+}
+
+
+/* Portfolio launch final QA: responsive and accessibility safeguards. */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+img, svg, video, canvas {
+  max-width: 100%;
+}
+
+button, a, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, [role="button"], a {
+  touch-action: manipulation;
+}
+
+.cx-skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  transform: translateY(-160%);
+  border-radius: 0.75rem;
+  background: #22d3ee;
+  color: #020617;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: transform 150ms ease;
+}
+
+.cx-skip-link:focus {
+  transform: translateY(0);
+}
+
+.cx-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
+}
+
+.cx-scrollbar::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.cx-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

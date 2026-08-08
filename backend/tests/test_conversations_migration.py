@@ -49,4 +49,4 @@ async def test_alembic_at_phase9_head(db_session: AsyncSession) -> None:
     result = await db_session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "0011_multi_agent_orchestration"
+    assert row[0] == "0019_eval_jobs"

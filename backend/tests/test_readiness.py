@@ -80,7 +80,7 @@ async def test_system_info_ollama_feature_enabled(client: AsyncClient, app: Fast
     response = await client.get("/api/v1/system/info")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["name"] == "Cortexa AI Agent Platform"
+    assert payload["name"] == "Cortexa AI Knowledge Platform"
     assert payload["version"] == "0.1.0"
     assert payload["environment"] == "test"
     assert payload["api_version"] == "v1"

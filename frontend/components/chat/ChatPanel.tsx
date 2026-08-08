@@ -15,6 +15,9 @@ import { useStream } from "@/lib/useStream";
 import type { ConversationMessage, MessageCitation, ToolActivityItem } from "@/types/api";
 import { ChatComposer, type ComposerDocument } from "@/components/chat/ChatComposer";
 import { MessageList } from "@/components/chat/MessageList";
+import { AgentRunActivity } from "@/components/agents/AgentRunActivity";
+import { CancelRunDialog } from "@/components/agents/CancelRunDialog";
+import { cancelAgentRun } from "@/services/agents";
 import { normalizeCitation } from "@/components/chat/CitationCard";
 import {
   MemoryActivity,
@@ -45,6 +48,11 @@ export function ChatPanel({ conversationId }: Props) {
   const [availableDocuments, setAvailableDocuments] = useState<ComposerDocument[]>([]);
   const [memoryActivity, setMemoryActivity] = useState<MemoryActivityState>({});
   const [memoryEnabled, setMemoryEnabled] = useState<boolean | null>(null);
+  const [agentRunId, setAgentRunId] = useState<string | null>(null);
+  const [agentRevision, setAgentRevision] = useState(0);
+  const [agentStatusText, setAgentStatusText] = useState<string | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancellingRun, setCancellingRun] = useState(false);
 
   // Track current conversation to cancel stream on switch.
   const convIdRef = useRef(conversationId);
@@ -58,6 +66,10 @@ export function ChatPanel({ conversationId }: Props) {
       setMessages([]);
     }
     setError(null);
+    if (!opts?.quiet) {
+      setAgentRunId(null);
+      setAgentStatusText(null);
+    }
     if (!opts?.preserveStream) {
       setStreaming(null);
       cancel();
@@ -86,6 +98,18 @@ export function ChatPanel({ conversationId }: Props) {
     }
 
     setMessages(result.data.messages.filter((m) => m.is_active));
+    const persistedRunId =
+      result.data.active_agent_run_id ??
+      [...result.data.messages]
+        .reverse()
+        .find((message) => message.role === "assistant" && message.agent_run_id)?.agent_run_id;
+    if (persistedRunId) {
+      setAgentRunId(persistedRunId);
+      setAgentRevision((value) => value + 1);
+    } else if (!opts?.quiet) {
+      setAgentRunId(null);
+      setAgentStatusText(null);
+    }
     setMemoryEnabled(result.data.memory_enabled ?? null);
     setMemoryActivity({
       enabled: result.data.memory_enabled !== false,
@@ -154,6 +178,8 @@ export function ChatPanel({ conversationId }: Props) {
       toolActivity: [],
       statusLabel: "Preparing your question…",
     });
+    setAgentRunId(null);
+    setAgentStatusText(null);
 
     await run(
       (signal) =>
@@ -359,6 +385,25 @@ export function ChatPanel({ conversationId }: Props) {
             }));
           }
         },
+        onAgentEvent: (event) => {
+          const runId = event.data.agent_run_id || event.data.run_id;
+          if (runId) setAgentRunId(runId);
+          const labels: Record<string, string> = {
+            run_started: "Preparing a coordinated response…",
+            planning_started: "Planning the work…",
+            plan_created: `Plan ready${event.data.task_count ? ` · ${event.data.task_count} tasks` : ""}`,
+            task_started: "Specialist agents are working…",
+            approval_required: "Your approval is required to continue.",
+            approval_resolved: "Resuming coordinated work…",
+            run_completed: "Coordinated response complete",
+            run_cancelled: "Coordinated response cancelled",
+            run_failed: "Coordinated response could not be completed",
+            run_timed_out: "Coordinated response timed out",
+          };
+          const statusText = labels[event.event];
+          if (statusText) setAgentStatusText(statusText);
+          setAgentRevision((value) => value + 1);
+        },
         onComplete: (data) => {
           setStreaming(null);
           setError(null);
@@ -370,8 +415,11 @@ export function ChatPanel({ conversationId }: Props) {
           }
           void loadConversation(id, { preserveStream: true, quiet: true });
         },
-        onMetadata: () => {
-          // Optionally store latency/model info.
+        onMetadata: (data) => {
+          if (data.agent_run_id) {
+            setAgentRunId(data.agent_run_id);
+            setAgentRevision((value) => value + 1);
+          }
         },
         onError: (msg) => {
           setStreaming(null);
@@ -383,9 +431,32 @@ export function ChatPanel({ conversationId }: Props) {
   }
 
   function handleCancel() {
+    if (agentRunId) {
+      setCancelDialogOpen(true);
+      return;
+    }
     cancel();
     setStreaming(null);
     setError("Response stopped");
+  }
+
+  async function confirmAgentCancellation() {
+    if (!agentRunId || cancellingRun) return;
+    setCancellingRun(true);
+    setAgentStatusText("Cancelling coordinated response…");
+    // Stop the browser stream immediately so the UI responds without waiting
+    // for the cancellation endpoint or the local model to unwind.
+    cancel();
+    setStreaming(null);
+    const result = await cancelAgentRun(agentRunId);
+    setCancellingRun(false);
+    setCancelDialogOpen(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setAgentStatusText("Coordinated response cancelled");
+    setAgentRevision((value) => value + 1);
   }
 
   async function handleMemoryToggle(next: boolean) {
@@ -417,10 +488,10 @@ export function ChatPanel({ conversationId }: Props) {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden" data-testid="chat-panel">
+    <div className="flex flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_-10%,rgba(34,211,238,0.035),transparent_32%)]" data-testid="chat-panel">
       {error && (
         <div
-          className="flex items-center justify-between border-b border-rose-500/20 bg-rose-500/10 px-4 py-2"
+          className="mx-4 mt-3 flex items-center justify-between rounded-xl border border-rose-400/15 bg-rose-500/[0.07] px-4 py-3 sm:mx-6"
           role="alert"
           data-testid="chat-error-banner"
         >
@@ -437,12 +508,12 @@ export function ChatPanel({ conversationId }: Props) {
       )}
 
       <div
-        className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-2"
+        className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.012] px-4 py-2.5 sm:px-6"
         data-testid="chat-memory-controls"
       >
         <MemoryActivity activity={memoryActivity} />
         <label className="flex items-center gap-2 text-xs text-slate-400">
-          <span>Use memory</span>
+          <span>Conversation memory</span>
           <input
             type="checkbox"
             checked={memoryEnabled !== false}
@@ -451,6 +522,12 @@ export function ChatPanel({ conversationId }: Props) {
           />
         </label>
       </div>
+
+      <AgentRunActivity
+        runId={agentRunId}
+        revision={agentRevision}
+        statusText={agentStatusText}
+      />
 
       <MessageList
         messages={messages}
@@ -465,6 +542,12 @@ export function ChatPanel({ conversationId }: Props) {
         isStreaming={isStreaming}
         onCancel={handleCancel}
         availableDocuments={availableDocuments}
+      />
+      <CancelRunDialog
+        open={cancelDialogOpen}
+        busy={cancellingRun}
+        onCancel={() => setCancelDialogOpen(false)}
+        onConfirm={() => void confirmAgentCancellation()}
       />
     </div>
   );

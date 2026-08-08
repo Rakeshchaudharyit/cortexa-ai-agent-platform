@@ -119,6 +119,8 @@ class MultiAgentService:
         enabled_tool_names: frozenset[str] | None = None,
         cancel_check: Any | None = None,
         event_callback: Any | None = None,
+        force_multi_agent: bool = False,
+        execution_profile: str = "fast",
     ) -> CoordinatorResult:
         if correlation_id:
             existing = await self.repository.get_by_correlation(
@@ -175,6 +177,8 @@ class MultiAgentService:
             cancel_check=combined_cancel_check,
             on_run_created=register_run,
             event_callback=event_callback,
+            force_multi_agent=force_multi_agent,
+            execution_profile=execution_profile,
         )
         try:
             result = await self.coordinator.execute(session, request)

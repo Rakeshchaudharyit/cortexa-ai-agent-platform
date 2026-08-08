@@ -134,3 +134,19 @@ async def test_ambiguous_classifier_provider_failure_falls_back(settings: Settin
     )
     assert result.execution_mode == "single_agent"
     assert "classifier_provider_failure" in result.reason_codes
+
+
+def test_document_mode_all_documents_counts_as_knowledge(settings: Settings) -> None:
+    decision = _classifier(settings).classify_deterministic(
+        ClassifierInput(
+            user_message=(
+                "Review the selected document, identify the main risks, calculate a "
+                "15 percent contingency on the stated budget, and prepare a concise "
+                "recommendation."
+            ),
+            conversation_mode="document",
+            selected_document_ids=[],
+        )
+    )
+    assert decision.execution_mode == "multi_agent"
+    assert "capability_knowledge" in decision.reason_codes

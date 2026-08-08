@@ -1,4 +1,4 @@
-# Cortexa AI Agent Platform — isolated automated-test stack
+# Cortexa AI Knowledge Platform — isolated automated-test stack
 # Never shares volumes, databases, or Redis with the development Compose project.
 #
 # Usage:
@@ -57,7 +57,7 @@ services:
     working_dir: /app
     environment:
       PYTHONPATH: /app
-      APP_NAME: Cortexa AI Agent Platform
+      APP_NAME: Cortexa AI Knowledge Platform
       APP_ENV: test
       APP_DEBUG: "false"
       APP_VERSION: 0.1.0

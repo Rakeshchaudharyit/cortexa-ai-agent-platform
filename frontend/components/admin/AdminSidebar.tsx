@@ -5,18 +5,49 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
 
-const NAV = [
-  { href: "/admin", label: "Overview", exact: true },
-  { href: "/admin/users", label: "Users" },
-  { href: "/admin/documents", label: "Documents" },
-  { href: "/admin/conversations", label: "Conversations" },
-  { href: "/admin/memories", label: "Memories" },
-  { href: "/admin/tools", label: "Agent Tools" },
-  { href: "/admin/tool-executions", label: "Tool Executions" },
-  { href: "/admin/analytics", label: "Analytics" },
-  { href: "/admin/audit", label: "Audit Logs" },
-  { href: "/admin/system", label: "System Health" },
-  { href: "/admin/settings", label: "Settings" },
+type NavItem = { href: string; label: string; exact?: boolean };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Workspace",
+    items: [
+      { href: "/admin", label: "Overview", exact: true },
+      { href: "/admin/analytics", label: "AI Quality & Analytics" },
+    ],
+  },
+  {
+    label: "Knowledge",
+    items: [
+      { href: "/admin/documents", label: "Documents" },
+      { href: "/admin/conversations", label: "Conversations" },
+      { href: "/admin/memories", label: "Memory" },
+    ],
+  },
+  {
+    label: "AI Quality",
+    items: [
+      { href: "/admin/evaluations", label: "Evaluations" },
+      { href: "/admin/feedback", label: "Feedback Review" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/admin/jobs", label: "Background Jobs" },
+      { href: "/admin/tools", label: "Tools" },
+      { href: "/admin/tool-executions", label: "Tool Activity" },
+      { href: "/admin/audit", label: "Audit Logs" },
+      { href: "/admin/system", label: "System Health" },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { href: "/admin/users", label: "Users" },
+      { href: "/admin/settings", label: "Settings" },
+    ],
+  },
 ];
 
 function navActive(pathname: string | null, href: string, exact?: boolean) {
@@ -38,57 +69,84 @@ export function AdminSidebar({
 
   const panel = (
     <aside
-      className="flex h-full w-64 flex-col border-r border-cyan-500/15 bg-slate-950/70 backdrop-blur-md"
+      className="flex h-full w-72 flex-col border-r border-white/10 bg-[#050b13]/95 backdrop-blur-xl"
       data-testid="admin-sidebar"
     >
-      <div className="border-b border-white/5 px-5 py-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/80">Cortexa</p>
-        <h1 className="mt-1 text-lg font-semibold text-white">Admin Portal</h1>
+      <div className="border-b border-white/10 px-5 py-5">
+        <Link href="/workspace" className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400 text-sm font-black text-slate-950 shadow-lg shadow-cyan-950/30">C</span>
+          <div>
+            <p className="text-sm font-semibold text-white">Cortexa</p>
+            <p className="text-xs text-slate-500">AI Operations Console</p>
+          </div>
+        </Link>
         <Link
           href="/chat"
-          className="mt-3 inline-flex text-sm text-slate-300 underline-offset-2 hover:text-cyan-200 hover:underline"
+          className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-slate-400 transition hover:text-cyan-200"
           data-testid="admin-back-to-app"
         >
-          ← Back to App
+          ← Return to workspace
         </Link>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Admin">
-        {NAV.map((item) => {
-          const active = navActive(pathname, item.href, item.exact);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={`block rounded-lg px-3 py-2 text-sm transition ${
-                active
-                  ? "bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-400/30"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-              data-testid={`admin-nav-${item.href.replace("/admin", "admin").replace(/\//g, "-") || "admin"}`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+
+      <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Admin">
+        <div className="space-y-5">
+          {NAV_GROUPS.map((group) => (
+            <section key={group.label}>
+              <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{group.label}</p>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const active = navActive(pathname, item.href, item.exact);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onClose}
+                      className={`block rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                        active
+                          ? "bg-cyan-400/10 text-cyan-100 ring-1 ring-cyan-400/20"
+                          : "text-slate-400 hover:bg-white/[0.045] hover:text-slate-100"
+                      }`}
+                      data-testid={`admin-nav-${item.href.replace("/admin", "admin").replace(/\//g, "-") || "admin"}`}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
       </nav>
-      <div className="border-t border-white/5 px-4 py-4" data-testid="admin-user-card">
-        <p className="truncate text-sm font-medium text-white">{user?.full_name}</p>
-        <p className="truncate text-xs text-slate-400">{user?.email}</p>
-        <p className="mt-1 text-xs uppercase tracking-wide text-cyan-300/80">{user?.role}</p>
-        <button
-          type="button"
-          className="mt-3 w-full rounded-lg bg-slate-800/80 px-3 py-2 text-sm text-slate-100 ring-1 ring-white/10 hover:bg-slate-700"
-          onClick={() => {
-            void (async () => {
-              await logout();
-              router.replace("/admin/login");
-            })();
-          }}
-          data-testid="admin-logout"
-        >
-          Log out
-        </button>
+
+      <div className="border-t border-white/10 p-4" data-testid="admin-user-card">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-xs font-semibold text-slate-200 ring-1 ring-white/10">
+              {user?.full_name?.slice(0, 1).toUpperCase() || "A"}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-white">{user?.full_name}</p>
+              <p className="truncate text-xs text-slate-500">{user?.email}</p>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <span className="rounded-full bg-cyan-400/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-cyan-200">{user?.role}</span>
+            <button
+              type="button"
+              className="text-xs font-medium text-slate-500 transition hover:text-white"
+              onClick={() => {
+                void (async () => {
+                  await logout();
+                  router.replace("/admin/login");
+                })();
+              }}
+              data-testid="admin-logout"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -97,14 +155,9 @@ export function AdminSidebar({
     <>
       <div className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0">{panel}</div>
       {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden" data-testid="admin-mobile-drawer">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            aria-label="Close navigation"
-            onClick={onClose}
-          />
-          <div className="absolute inset-y-0 left-0 shadow-2xl">{panel}</div>
+        <div className="fixed inset-0 z-40 lg:hidden" data-testid="admin-mobile-drawer" role="dialog" aria-modal="true" aria-label="Admin navigation">
+          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-label="Close navigation" onClick={onClose} />
+          <div className="absolute inset-y-0 left-0 w-[min(18rem,88vw)] shadow-2xl">{panel}</div>
         </div>
       ) : null}
     </>

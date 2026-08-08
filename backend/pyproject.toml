@@ -1,7 +1,7 @@
 [project]
 name = "cortexa-backend"
 version = "0.1.0"
-description = "Cortexa AI Agent Platform — FastAPI backend (Phase 4 RAG foundation)."
+description = "Cortexa AI Knowledge Platform — FastAPI backend for enterprise RAG and AI quality operations."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }

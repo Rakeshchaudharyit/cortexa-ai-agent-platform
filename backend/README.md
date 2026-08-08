@@ -1,16 +1,34 @@
-# Cortexa Backend — Phase 4
+# Cortexa Backend
 
-See the repository root [README.md](../README.md) and [docs/RAG.md](../docs/RAG.md) for setup, document APIs, and RAG curl examples.
+FastAPI backend for the Cortexa AI Knowledge Platform.
 
-Phase 4 adds:
+## Responsibilities
 
-- Document upload / list / detail / delete
-- Synchronous extract → chunk → embed pipeline
-- pgvector retrieval and grounded `/api/v1/rag/query`
-- Public `/api/v1/embeddings/status`
+- authentication and role-based APIs;
+- documents, folders, lifecycle/versioning and citations;
+- pgvector retrieval and grounded RAG;
+- persistent streaming conversations;
+- memories and safe built-in tools;
+- RAG evaluation, feedback review and AI analytics;
+- durable PostgreSQL job ledger and Redis-delivered background work;
+- admin/system/audit APIs.
 
-Pull the embedding model manually:
+## Local development
+
+Use the repository root Compose stack:
 
 ```bash
-docker compose exec ollama ollama pull nomic-embed-text
+cp .env.example .env
+docker compose up -d --build
 ```
+
+Backend health/readiness:
+
+```bash
+curl -fsS http://localhost:18000/health
+curl -fsS http://localhost:18000/ready
+```
+
+Development OpenAPI is available at `http://localhost:18000/docs`.
+
+See the root [README](../README.md), [Architecture](../docs/ARCHITECTURE.md), [API Overview](../docs/API_OVERVIEW.md), and [RAG](../docs/RAG.md).

@@ -15,6 +15,30 @@ async function* fromEvents(events: SSEEvent[]): AsyncGenerator<SSEEvent> {
 }
 
 describe("useStream canonical text contract", () => {
+  it("forwards typed multi-agent lifecycle events without treating them as text", async () => {
+    const { result } = renderHook(() => useStream());
+    const onAgentEvent = vi.fn();
+    const onDelta = vi.fn();
+    await act(async () => {
+      await result.current.run(
+        () =>
+          fromEvents([
+            { event: "run_started", data: { agent_run_id: "run-1" } },
+            { event: "planning_started", data: { agent_run_id: "run-1" } },
+            { event: "task_started", data: { agent_run_id: "run-1", task_id: "task-1" } },
+          ]),
+        {
+          onAgentEvent,
+          onDelta,
+          onCitation: vi.fn(),
+          onComplete: vi.fn(),
+          onError: vi.fn(),
+        },
+      );
+    });
+    expect(onAgentEvent).toHaveBeenCalledTimes(3);
+    expect(onDelta).not.toHaveBeenCalled();
+  });
   it("appends delta once and ignores legacy assistant_token twins", async () => {
     const { result } = renderHook(() => useStream());
     let content = "";

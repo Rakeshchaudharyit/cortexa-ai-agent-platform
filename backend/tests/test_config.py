@@ -15,7 +15,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
     settings = Settings()
-    assert settings.app_name == "Cortexa AI Agent Platform"
+    assert settings.app_name == "Cortexa AI Knowledge Platform"
     assert settings.app_env == "development"
     assert settings.app_version == "0.1.0"
     assert settings.api_prefix == "/api/v1"

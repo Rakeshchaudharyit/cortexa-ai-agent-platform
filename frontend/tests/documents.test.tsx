@@ -64,6 +64,17 @@ function sampleDocument(overrides: Partial<DocumentResponse> = {}): DocumentResp
     processed_at: "2026-07-28T00:00:01Z",
     error_code: null,
     error_message: null,
+    title: "notes.txt",
+    folder_id: null,
+    folder_name: null,
+    tags: [],
+    version_number: 1,
+    knowledge_document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    lifecycle_state: "active",
+    is_active_version: true,
+    supersedes_document_id: null,
+    archived_at: null,
+    is_archived: false,
     processing_mode: "synchronous",
     ...overrides,
   };
@@ -112,6 +123,9 @@ function stubDocumentApi(handlers: DocHandlers = {}) {
     }
     if (url.includes("/api/v1/auth/me") && method === "GET") {
       return handlers.me?.() ?? Response.json(demoUser());
+    }
+    if (url.includes("/api/v1/documents/folders") && method === "GET") {
+      return Response.json({ items: [], total: 0 });
     }
     if (url.includes("/api/v1/documents") && method === "GET" && !url.match(/documents\/[^/?]+$/)) {
       return (

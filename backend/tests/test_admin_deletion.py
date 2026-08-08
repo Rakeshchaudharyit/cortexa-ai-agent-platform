@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.models.admin import PlatformSetting, ToolConfiguration
-from app.models.document import Document, DocumentChunk
+from app.models.document import Document, DocumentChunk, KnowledgeDocument
 from app.models.enums import (
     DocumentStatus,
     MemoryCategory,
@@ -282,9 +282,15 @@ async def test_permanent_user_deletion_cleanup(
     target_id = uuid.UUID(target["user"]["id"])
     email = target["user"]["email"]
 
+    knowledge = KnowledgeDocument(
+        id=uuid.uuid4(), user_id=target_id, title="notes.txt", tags=[]
+    )
+    db_session.add(knowledge)
+    await db_session.flush()
     doc = Document(
         id=uuid.uuid4(),
         user_id=target_id,
+        knowledge_document_id=knowledge.id,
         filename="notes.txt",
         original_filename="notes.txt",
         media_type="text/plain",
@@ -297,6 +303,7 @@ async def test_permanent_user_deletion_cleanup(
     )
     db_session.add(doc)
     await db_session.flush()
+    knowledge.active_version_id = doc.id
     db_session.add(
         DocumentChunk(
             id=uuid.uuid4(),
@@ -408,9 +415,15 @@ async def test_document_delete_and_impact(
     admin, _ = await _two_admins(chat_client, db_session)
     owner = await _register(chat_client, f"docowner-{uuid.uuid4().hex[:8]}@example.com")
     owner_id = uuid.UUID(owner["user"]["id"])
+    knowledge = KnowledgeDocument(
+        id=uuid.uuid4(), user_id=owner_id, title="report.pdf", tags=[]
+    )
+    db_session.add(knowledge)
+    await db_session.flush()
     doc = Document(
         id=uuid.uuid4(),
         user_id=owner_id,
+        knowledge_document_id=knowledge.id,
         filename="report.pdf",
         original_filename="report.pdf",
         media_type="application/pdf",
@@ -423,6 +436,7 @@ async def test_document_delete_and_impact(
     )
     db_session.add(doc)
     await db_session.flush()
+    knowledge.active_version_id = doc.id
     db_session.add(
         DocumentChunk(
             id=uuid.uuid4(),

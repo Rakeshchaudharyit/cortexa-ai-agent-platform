@@ -273,3 +273,47 @@ async def test_orchestrator_does_not_dual_emit_assistant_token(
 
     assert "".join(deltas) == "Working"
     assert tokens == []
+
+
+def test_dedupe_retrieved_chunks_removes_near_identical_passages() -> None:
+    class _Chunk:
+        def __init__(self, content: str) -> None:
+            self.id = uuid.uuid4()
+            self.content = content
+
+    class _Item:
+        def __init__(self, content: str) -> None:
+            self.chunk = _Chunk(content)
+
+    first = "FastAPI PostgreSQL Next.js and RAG form the platform architecture."
+    duplicate = "FastAPI, PostgreSQL, Next.js and RAG form the platform architecture."
+    different = "Redis supports caching and background coordination."
+    unique = dedupe_retrieved_chunks([_Item(first), _Item(duplicate), _Item(different)])
+    assert len(unique) == 2
+
+
+def test_context_selection_keeps_complete_passages_and_respects_budget() -> None:
+    from app.conversations.citations import select_context_chunks
+
+    class _Chunk:
+        def __init__(self, content: str) -> None:
+            self.id = uuid.uuid4()
+            self.content = content
+
+    class _Item:
+        def __init__(self, content: str) -> None:
+            self.chunk = _Chunk(content)
+
+    items = [_Item("A" * 60), _Item("B" * 60), _Item("C" * 20)]
+    selected = select_context_chunks(items, max_chars=90)
+    assert [item.chunk.content[0] for item in selected] == ["A", "C"]
+    assert all(len(item.chunk.content) in {60, 20} for item in selected)
+
+
+def test_normalize_grounded_answer_removes_invalid_citation_markers() -> None:
+    cleaned = normalize_grounded_answer(
+        "FastAPI is used [1], but this marker is invalid [7].",
+        citation_count=2,
+    )
+    assert "[1]" in cleaned
+    assert "[7]" not in cleaned

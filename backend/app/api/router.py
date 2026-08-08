@@ -11,6 +11,7 @@ from app.api.routes import (
     documents,
     embeddings,
     health,
+    jobs,
     llm,
     memories,
     rag,
@@ -35,6 +36,7 @@ def build_api_router(settings: Settings) -> APIRouter:
     api.include_router(tools.router)
     api.include_router(memories.router)
     api.include_router(agents.router)
+    api.include_router(jobs.router)
     api.include_router(build_admin_router())
     return api
 

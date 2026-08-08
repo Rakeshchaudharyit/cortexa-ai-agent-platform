@@ -175,11 +175,51 @@ export type AdminAnalyticsResponse = {
     conversations: number;
     messages: number;
     document_uploads: number;
+    rag_queries: number;
+    successful_responses: number;
+    failed_responses: number;
+    no_answer_responses: number;
+    citation_count: number;
+    total_tokens: number;
+    memory_actions: number;
     tool_executions: number;
     tool_succeeded: number;
     tool_failed: number;
+    ai_latency_ms: number | null;
+    retrieval_latency_ms: number | null;
+    generation_latency_ms: number | null;
+    first_token_latency_ms: number | null;
   }>;
   totals: Record<string, number | null>;
+  quality: {
+    score: number | null;
+    evaluation_score: number | null;
+    feedback_score: number | null;
+    success_score: number | null;
+    citation_coverage_score: number | null;
+    label: string;
+  };
+  knowledge_health: {
+    total_documents: number;
+    ready_documents: number;
+    pending_documents: number;
+    processing_documents: number;
+    failed_documents: number;
+    zero_chunk_documents: number;
+    stale_documents: number;
+    duplicate_content_groups: number;
+    health_score: number | null;
+  };
+  feedback: {
+    total: number;
+    helpful: number;
+    not_helpful: number;
+    open_reviews: number;
+    helpful_rate: number | null;
+  };
+  top_documents: Array<{ label: string; value: number; secondary: string | null }>;
+  top_models: Array<{ label: string; value: number; secondary: string | null }>;
+  evaluation_trend: Array<{ date: string; average_score: number; pass_rate: number; total_cases: number }>;
   unavailable: string[];
   generated_at: string;
 };
@@ -282,4 +322,122 @@ export type AdminMemoryDeletionImpact = {
   has_embedding: boolean;
   can_delete: boolean;
   blocking_reason: string | null;
+};
+
+export type RagEvaluationCase = {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  question: string;
+  expected_answer: string | null;
+  expected_keywords: string[];
+  expected_document_ids: string[];
+  should_answer: boolean;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RagEvaluationRun = {
+  id: string;
+  status: string;
+  total_cases: number;
+  passed_cases: number;
+  failed_cases: number;
+  average_score: number;
+  provider: string | null;
+  model: string | null;
+  duration_ms: number | null;
+  error_summary: string | null;
+  created_at: string;
+  completed_at: string | null;
+  background_job_id: string | null;
+};
+
+export type RagEvaluationResult = {
+  id: string;
+  run_id: string;
+  case_id: string | null;
+  case_name: string;
+  status: string;
+  score: number;
+  passed: boolean;
+  groundedness_score: number;
+  keyword_recall_score: number;
+  citation_match_score: number;
+  answerability_score: number;
+  retrieval_count: number;
+  citation_count: number;
+  latency_ms: number | null;
+  provider: string | null;
+  model: string | null;
+  answer_excerpt: string | null;
+  error_code: string | null;
+  created_at: string;
+};
+
+export type RagEvaluationRunDetail = RagEvaluationRun & { results: RagEvaluationResult[] };
+
+export type AdminFeedbackItem = {
+  id: string;
+  message_id: string;
+  conversation_id: string;
+  user_id: string;
+  user_email: string;
+  sentiment: "helpful" | "not_helpful";
+  reason: "incorrect" | "missing_source" | "not_relevant" | "incomplete" | "unclear" | "other" | null;
+  comment: string | null;
+  status: "open" | "reviewed" | "resolved";
+  model: string | null;
+  provider: string | null;
+  grounded: boolean | null;
+  citation_count: number;
+  answer_excerpt: string;
+  admin_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminFeedbackList = {
+  items: AdminFeedbackItem[];
+  total: number;
+  open_count: number;
+  helpful_count: number;
+  not_helpful_count: number;
+};
+
+export type AdminBackgroundJob = {
+  id: string;
+  owner_user_id: string | null;
+  job_type: string;
+  status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "dead_lettered" | "cancelled";
+  progress_percent: number;
+  status_message: string | null;
+  result: Record<string, unknown> | null;
+  error_code: string | null;
+  error_message: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  cancellation_requested: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+};
+
+export type AdminJobList = {
+  items: AdminBackgroundJob[];
+  total: number;
+  worker_healthy: boolean;
+  worker_last_seen_at: string | null;
+  queue_metrics: {
+    ready_depth: number;
+    delayed_depth: number;
+    dead_letter_count: number;
+    stale_running_count: number;
+    oldest_queued_age_seconds: number | null;
+  };
 };

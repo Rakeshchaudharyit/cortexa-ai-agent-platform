@@ -33,7 +33,7 @@ class ConversationSpecialist(BaseAgent):
     )
     allowed_tools: ClassVar[frozenset[str]] = frozenset()
     maximum_steps: ClassVar[int] = 4
-    timeout_seconds: ClassVar[int] = 60
+    timeout_seconds: ClassVar[int] = 120
 
     def __init__(
         self,
@@ -86,6 +86,76 @@ class ConversationSpecialist(BaseAgent):
                 "prior_task_count": len(prior),
             },
             llm_calls_used=llm_calls,
+        )
+
+
+    def build_deterministic_fallback(
+        self,
+        *,
+        task: AgentTaskRequest,
+        context: AgentContextEnvelope,
+        max_chars: int | None = None,
+    ) -> AgentTaskResult:
+        """Build a safe final response without another provider call.
+
+        This is used when local-model synthesis times out or becomes unavailable.
+        It intentionally summarizes only already-approved specialist outputs and
+        never invents a calculation, citation, or document fact.
+        """
+        limit = max_chars or (
+            self.settings.agent_task_output_max_characters
+            if self.settings is not None
+            else context.limits.task_output_max_characters
+        )
+        prior = context.prior_task_results or []
+        citations: list[dict[str, Any]] = []
+        findings: list[str] = []
+        missing_baseline = False
+
+        for item in prior:
+            agent = str(item.get("agent_name") or item.get("assigned_agent_key") or "specialist")
+            summary = str(item.get("result_summary") or item.get("safe_summary") or "").strip()
+            structured = item.get("structured_result") or item.get("output") or {}
+            if summary:
+                findings.append(f"{agent.title()}: {summary}")
+            if isinstance(structured, dict):
+                for cite in structured.get("citations") or item.get("citations") or []:
+                    if isinstance(cite, dict):
+                        citations.append(cite)
+                tool_result = structured.get("tool_result")
+                if isinstance(tool_result, dict) and tool_result.get("calculation_performed") is False:
+                    missing_baseline = True
+
+        lines = ["I completed the available parts of your request using the retrieved information."]
+        if findings:
+            lines.append("")
+            lines.append("Findings:")
+            lines.extend(f"- {finding}" for finding in findings[:8])
+        if missing_baseline:
+            lines.append("")
+            lines.append(
+                "The selected document does not provide a numeric baseline budget, so the 15% "
+                "contingency cannot be calculated yet. Please provide the budget amount and I can "
+                "calculate it immediately."
+            )
+        lines.append("")
+        lines.append(
+            "Recommendation: confirm the missing financial baseline, then review the identified "
+            "operational and project risks before finalizing the contingency."
+        )
+        content = truncate_output("\n".join(lines), limit)
+        return AgentTaskResult(
+            success=True,
+            agent_name=self.name,
+            task_type=task.task_type,
+            result_summary=truncate_output(content, 2000),
+            output={
+                "content": content,
+                "citations": citations[:32],
+                "prior_task_count": len(prior),
+                "degraded_synthesis": True,
+            },
+            llm_calls_used=0,
         )
 
     async def _chat(

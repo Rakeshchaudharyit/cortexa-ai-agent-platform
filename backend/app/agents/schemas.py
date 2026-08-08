@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -96,6 +96,7 @@ class AgentPlan(BaseModel):
     final_response_agent: str = Field(default="conversation", min_length=1, max_length=64)
     estimated_steps: int = Field(default=1, ge=1, le=64)
     requires_approval: bool = False
+    planning_strategy: Literal["deterministic", "llm", "fallback"] = "deterministic"
 
 
 class AgentTaskRequest(BaseModel):
@@ -246,6 +247,10 @@ class AgentRunSummary(BaseModel):
     steps_used: int = 0
     llm_calls_used: int = 0
     tool_calls_used: int = 0
+    context_characters_used: int = 0
+    planning_duration_ms: int | None = None
+    execution_duration_ms: int | None = None
+    synthesis_duration_ms: int | None = None
     task_count: int = 0
     correlation_id: str
     error_code: str | None = None

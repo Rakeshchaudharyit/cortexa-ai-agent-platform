@@ -28,16 +28,19 @@ from app.conversations.schemas import (
 )
 from app.core.config import Settings
 from app.core.logging import request_id_ctx
+from app.models.agent import AgentRun
 from app.models.conversation import (
     DEFAULT_CONVERSATION_TITLE,
     Conversation,
     Message,
     MessageCitation,
 )
-from app.models.enums import ConversationStatus, MessageRole
+from app.models.enums import AgentRunStatus, ConversationStatus, MessageRole
+from app.models.feedback import MessageFeedback
 from app.models.tool_execution import ToolExecution
 from app.models.user import User
 from app.services.tools import execution_to_summary
+from app.feedback_schemas import MessageFeedbackView
 
 logger = logging.getLogger("cortexa.conversations")
 
@@ -82,6 +85,7 @@ def message_to_response(
     meta = message.message_metadata or {}
     raw_ids = meta.get("tool_execution_ids") if isinstance(meta, dict) else None
     tool_ids = [str(item) for item in raw_ids] if isinstance(raw_ids, list) else []
+    agent_run_id = meta.get("agent_run_id") if isinstance(meta, dict) else None
     return MessageResponse(
         id=message.id,
         conversation_id=message.conversation_id,
@@ -106,6 +110,20 @@ def message_to_response(
         citations=citations,
         tool_execution_ids=tool_ids,
         tool_executions=list(tool_executions or []),
+        agent_run_id=str(agent_run_id) if agent_run_id else None,
+        feedback=(
+            MessageFeedbackView(
+                id=message.feedback.id,
+                sentiment=message.feedback.sentiment,
+                reason=message.feedback.reason,
+                comment=message.feedback.comment,
+                status=message.feedback.status,
+                created_at=message.feedback.created_at,
+                updated_at=message.feedback.updated_at,
+            )
+            if message.feedback is not None
+            else None
+        ),
     )
 
 
@@ -277,7 +295,7 @@ class ConversationService:
             await session.scalars(
                 select(Message)
                 .where(*filters)
-                .options(selectinload(Message.citations))
+                .options(selectinload(Message.citations), selectinload(Message.feedback))
                 .order_by(Message.sequence_number.desc())
                 .limit(limit)
             )
@@ -307,6 +325,24 @@ class ConversationService:
         if conversation.default_document_scope is not None:
             scope = [uuid.UUID(str(item)) for item in conversation.default_document_scope]
 
+        active_agent_run_id = await session.scalar(
+            select(AgentRun.id)
+            .where(
+                AgentRun.user_id == user.id,
+                AgentRun.conversation_id == conversation.id,
+                AgentRun.status.in_(
+                    [
+                        AgentRunStatus.pending,
+                        AgentRunStatus.planning,
+                        AgentRunStatus.running,
+                        AgentRunStatus.awaiting_approval,
+                    ]
+                ),
+            )
+            .order_by(AgentRun.created_at.desc())
+            .limit(1)
+        )
+
         return ConversationDetailResponse(
             id=conversation.id,
             title=conversation.title,
@@ -329,6 +365,7 @@ class ConversationService:
             has_more_messages=total_messages > len(messages),
             memory_enabled=conversation.memory_enabled_override,
             memory_context_used=int(conversation.memory_context_used or 0),
+            active_agent_run_id=active_agent_run_id,
         )
 
     async def set_memory_enabled(

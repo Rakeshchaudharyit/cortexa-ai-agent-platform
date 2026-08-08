@@ -1,7 +1,7 @@
 [project]
 name = "cortexa-ai-agent-platform"
 version = "0.1.0"
-description = "Cortexa AI Agent Platform — local-first enterprise AI agent monorepo (Phase 1 foundation)."
+description = "Cortexa AI Knowledge Platform — enterprise RAG, knowledge governance, and AI quality monorepo."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }

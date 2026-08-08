@@ -8,6 +8,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.agents.api import safe_metadata
 from app.agents.repository import AgentRunRepository
 from app.db.session import get_session_factory
@@ -23,9 +28,6 @@ from app.models.enums import (
 )
 from app.models.memory import UserMemory
 from app.models.user import User
-from httpx import AsyncClient
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.document_helpers import sample_txt_bytes
 
@@ -175,6 +177,14 @@ async def test_complex_sse_order_complete_once_metadata_and_idempotency(
     metadata = next(data for name, data in events if name == "metadata")
     complete = next(data for name, data in events if name == "complete")
     assert metadata["agent_run_id"] == complete["agent_run_id"]
+    persisted = await chat_client.get(
+        f"/api/v1/conversations/{conversation_id}", headers=headers
+    )
+    assert persisted.status_code == 200
+    assistant_messages = [
+        item for item in persisted.json()["messages"] if item["role"] == "assistant"
+    ]
+    assert assistant_messages[-1]["agent_run_id"] == metadata["agent_run_id"]
 
     replay = await asyncio.wait_for(
         chat_client.post(
@@ -637,3 +647,42 @@ async def test_stale_recovery_preserves_approval_and_terminal_runs(
 async def test_agent_definition_seed_remains_present(db_session: AsyncSession) -> None:
     definitions = list(await db_session.scalars(select(AgentDefinition)))
     assert {item.key for item in definitions} >= {"coordinator", "safety", "conversation"}
+
+@pytest.mark.asyncio
+async def test_conversation_detail_exposes_active_agent_run_for_refresh_recovery(
+    chat_client: AsyncClient,
+    chat_app: FastAPI,
+    db_session: AsyncSession,
+) -> None:
+    payload = await _register(chat_client, "active-run-refresh")
+    headers = _headers(payload)
+    conversation_response = await chat_client.post(
+        "/api/v1/conversations",
+        json={},
+        headers=headers,
+    )
+    assert conversation_response.status_code == 201
+    conversation_id = uuid.UUID(conversation_response.json()["id"])
+    user = await db_session.get(User, uuid.UUID(payload["user"]["id"]))
+    assert user is not None
+
+    repository = AgentRunRepository(chat_app.state.settings)
+    run = await repository.create_run(
+        db_session,
+        user=user,
+        conversation_id=conversation_id,
+        original_request="Remember a durable preference after confirmation",
+        correlation_id=str(uuid.uuid4()),
+        execution_mode=AgentExecutionMode.multi_agent,
+    )
+    await repository.transition_run(db_session, run, AgentRunStatus.planning)
+    await repository.transition_run(db_session, run, AgentRunStatus.running)
+    await repository.transition_run(db_session, run, AgentRunStatus.awaiting_approval)
+    await db_session.commit()
+
+    detail = await chat_client.get(
+        f"/api/v1/conversations/{conversation_id}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["active_agent_run_id"] == str(run.id)

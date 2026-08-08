@@ -23,9 +23,9 @@ export function AgentToolsOverview() {
   return (
     <section className="flex flex-col gap-4" data-testid="agent-tools-overview" id="agent-tools">
       <div>
-        <h2 className="text-lg font-semibold text-slate-100">Built-in Agent Tools</h2>
+        <h2 className="text-lg font-semibold text-slate-100">Built-in AI Tools</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Approved tools the local model can call during General Agent chat.
+          Approved, server-validated tools available to the general assistant when a task requires structured execution.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

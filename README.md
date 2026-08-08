@@ -1,146 +1,144 @@
-# Cortexa AI Agent Platform
+# Cortexa AI Knowledge Platform
 
-Production-oriented, local-first AI Agent Platform designed as a flagship portfolio system for senior AI Engineer and AI Agent Developer roles.
+**Enterprise RAG · Knowledge Management · AI Quality Operations**
 
-Cortexa demonstrates enterprise software architecture applied to local AI runtimes: typed APIs, clean service boundaries, provider-isolated model integrations, and secure deployment patterns — without requiring cloud AI vendors.
+Cortexa is a production-oriented AI engineering portfolio project for turning private documents into a governed, measurable knowledge system. It combines grounded RAG chat, document lifecycle/versioning, automated quality evaluation, human feedback review, enterprise analytics, and durable background processing in one SaaS-style platform.
 
-> **Current status:** Phase 8 complete — Enterprise Administration Portal
->
-> FastAPI, Next.js, PostgreSQL (+ pgvector), Redis, Ollama LLM/embeddings, authentication,
-> document RAG, multi-turn chat, built-in agent tools, and user-controlled long-term memory
-> are runnable.
->
-> External SaaS tools, voice, and organization/tenant management are **not** implemented.
+> Built to demonstrate senior-level AI/backend engineering beyond a chatbot demo: FastAPI, Next.js, PostgreSQL/pgvector, Redis workers, RAG evaluation, observability, governance, and operational tooling.
 
-See [docs/LONG_TERM_MEMORY.md](docs/LONG_TERM_MEMORY.md) for the Phase 7 memory architecture.
-See [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) for the Phase 6 tool architecture.
+## Product highlights
 
----
+- **Grounded knowledge chat** with document citations and safe no-answer behavior
+- **Knowledge governance** with folders, archive/restore, immutable versions, active-version retrieval, and lifecycle history
+- **Background AI workloads** for document ingestion, re-indexing, evaluation runs, and CSV exports
+- **RAG evaluation framework** with reusable test cases, quality scores, pass rates, and regression history
+- **Human feedback loop** with Helpful / Not helpful review, issue reasons, admin notes, and resolution workflow
+- **Enterprise analytics** for AI quality, knowledge health, latency, citations, feedback, model usage, and reliability
+- **Operations console** for worker health, queue depth, retries, cancellation, dead-letter handling, and requeue
+- **Authentication and RBAC** with protected user/admin experiences and owner-scoped knowledge access
 
-## Overview
+## Public portfolio routes
 
-Cortexa is a monorepo for a fully local AI agent stack. The long-term goal is a system that can:
-
-- Run chat and agent workflows against local LLMs (Ollama + Qwen / Llama families)
-- Ground responses with RAG over a local vector store
-- Persist conversational and long-term memory
-- Invoke tools under explicit permission controls
-- Support speech-to-text and text-to-speech locally
-- Expose an enterprise-grade operator dashboard with analytics
-- Deploy with Docker, PostgreSQL, and Redis on a single machine
-
-Phase 4 added private document upload, local embeddings, pgvector retrieval, and grounded answers with citations. Phase 5 added persistent conversations, multi-turn RAG chat (streaming and non-streaming), edit/regenerate, and the Next.js chat UI. Phase 6 added secure built-in agent tools with native Ollama tool calling, execution history, and frontend tool visibility. Phase 7 adds user-controlled long-term memory with retrieval, confirmation policies, and a `/memories` management UI.
-
----
-
-## What Phase 7 Implements
-
-| Capability | Status |
+| Route | Experience |
 | --- | --- |
-| Phase 1–6 foundation + auth + RAG + conversations + tools | Preserved |
-| User-owned long-term memories | Available |
-| Memory settings (extraction off by default) | Available |
-| Explicit remember / forget | Available |
-| Bounded memory retrieval into chat context | Available |
-| `/memories` management UI | Available |
-| Memory streaming events + audit trail | Available |
-| Built-in tools (calculator, datetime, knowledge search, summary) | Implemented |
-| Tool registry, executor, orchestrator, SSE tool events | Implemented |
-| Persistent `tool_executions` audit history | Implemented |
-| `/tools` history UI + in-chat tool activity | Implemented |
-| Phase 6 platform overview on the home page | Implemented |
+| `/` | Public product landing page |
+| `/demo` | Guided product tour |
+| `/login` | Authentication |
+| `/workspace` | Authenticated knowledge workspace |
+| `/chat` | Grounded knowledge chat |
+| `/admin` | Enterprise admin dashboard |
+| `/admin/analytics` | AI quality and operational analytics |
+| `/admin/evaluations` | Automated RAG regression testing |
+| `/admin/feedback` | Human-in-the-loop answer review |
+| `/admin/jobs` | Background operations console |
 
-## What Remains Unavailable
+## Architecture
 
-| Capability | Status |
+```mermaid
+flowchart LR
+    Browser[Next.js / TypeScript] -->|HTTPS / REST / SSE| API[FastAPI API]
+    API --> Auth[Auth + RBAC]
+    API --> PG[(PostgreSQL + pgvector)]
+    API --> Redis[(Redis)]
+    API --> LLM[LLM / Embedding Provider]
+    Redis --> Worker[Background Worker]
+    Worker --> PG
+    Worker --> LLM
+    Worker --> Storage[(Document Storage)]
+    API --> Storage
+```
+
+The API owns short request/response workflows. Long-running ingestion, indexing, evaluation, and export work is represented durably in PostgreSQL and delivered through Redis to an independent worker.
+
+See [Architecture Diagrams](docs/ARCHITECTURE_DIAGRAMS.md) and [System Architecture](docs/ARCHITECTURE.md) for the detailed flows.
+
+## Tech stack
+
+| Area | Technology |
 | --- | --- |
-| Cross-conversation / profile memory | Not implemented |
-| Organization / tenant management | Not implemented |
-| Social login / production password-reset email | Not implemented (dev reset CLI + in-app reset exist) |
-| External SaaS tools / voice | Not implemented |
-| Analytics / admin modules | Phase 8 admin portal (`/admin`, `/api/v1/admin/*`) — see [docs/ENTERPRISE_ADMIN_PORTAL.md](docs/ENTERPRISE_ADMIN_PORTAL.md) |
-| Automatic model downloads | Intentionally disabled |
+| Frontend | Next.js, React, TypeScript, Tailwind CSS |
+| API | FastAPI, Python, Pydantic |
+| Persistence | PostgreSQL, SQLAlchemy, Alembic |
+| Vector search | pgvector |
+| Queue | Redis + durable PostgreSQL job ledger |
+| Local AI | Ollama (`qwen2.5:7b`, `nomic-embed-text`) |
+| Runtime | Docker Compose |
+| Quality | Pytest, Ruff, type checks, frontend tests/build, repository validation |
 
----
+## Quick start
 
-## Quick Start (Docker)
+### 1. Configure
 
 ```bash
 cp .env.example .env
+```
+
+For public or shared deployments, replace all placeholder secrets and enable secure cookie/HTTPS settings before exposing the application.
+
+### 2. Start services
+
+```bash
 docker compose up -d --build
+```
 
-# Health (default example ports 8000/3000; this workspace may remap to 18000/13000)
-curl -i http://localhost:18000/health
-curl -i http://localhost:18000/ready
-curl -i http://localhost:18000/api/v1/llm/status
+### 3. Pull local models
 
-# Pull models only when you want generation / embeddings to succeed
+```bash
 docker compose exec ollama ollama pull qwen2.5:7b
 docker compose exec ollama ollama pull nomic-embed-text
-
-curl -i http://localhost:18000/api/v1/embeddings/status
-
-open http://localhost:13000/chat
 ```
 
-Stop:
+### 4. Verify
 
 ```bash
-docker compose down
+docker compose ps
+curl -fsS http://localhost:18000/health
+curl -fsS http://localhost:18000/ready
 ```
 
----
+Open `http://localhost:13000/`.
 
-## Architecture Summary
+For detailed setup and production considerations, see [Deployment Guide](docs/DEPLOYMENT.md).
 
-```
-Frontend (Next.js)  →  FastAPI API  →  Services  →  DB / Redis / LLM providers
-```
+### Production/demo deployment
 
-Routes never open database, Redis, or Ollama connections directly. The LLM factory injects the configured provider.
+A separate production-oriented Compose topology, standalone Next.js image and HTTPS Caddy ingress are included for a controlled live portfolio deployment. See [Live Demo Deployment](docs/LIVE_DEMO_DEPLOYMENT.md) and [GitHub Publishing](docs/GITHUB_PUBLISHING.md).
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+## Demo workflow
 
----
+A safe demo knowledge pack is included under [`demo/knowledge`](demo/knowledge).
 
-## Endpoint Semantics
+Recommended walkthrough:
 
-| Endpoint | Purpose | Success | Notes |
-| --- | --- | --- | --- |
-| `GET /health`, `/health/live` | Liveness | `200` | Process-only; no dependency checks |
-| `GET /ready`, `/health/ready` | Infra readiness | `200` / `503` | Postgres + migrations/schema + Redis |
-| `GET /api/v1/system/info` | App info | `200` | `features.auth=true` |
-| `POST /api/v1/auth/register` | Register | `201` | Sets HttpOnly refresh cookie |
-| `POST /api/v1/auth/login` | Login | `200` | Sets HttpOnly refresh cookie |
-| `POST /api/v1/auth/refresh` | Rotate refresh | `200` | Cookie required |
-| `POST /api/v1/auth/logout` | Logout | `200` | Idempotent |
-| `GET /api/v1/auth/me` | Current user | `200` | Bearer access token |
-| `GET /api/v1/llm/status` | LLM diagnostics | `200` | Public |
-| `POST /api/v1/llm/generate` | Non-streaming | `200` | **Requires auth** + pulled model |
-| `POST /api/v1/llm/stream` | SSE streaming | `200` | **Requires auth** |
-| `GET /api/v1/embeddings/status` | Embedding diagnostics | `200` | Public |
-| `POST /api/v1/documents` | Upload document | `201` | **Requires auth**; sync ingest |
-| `GET /api/v1/documents` | List documents | `200` | **Requires auth** |
-| `POST /api/v1/rag/query` | One-shot grounded Q&A | `200` | **Requires auth** |
-| `POST /api/v1/conversations` | Create conversation | `201` | **Requires auth** |
-| `GET /api/v1/conversations` | List conversations | `200` | **Requires auth** |
-| `POST /api/v1/conversations/{id}/messages` | Multi-turn chat | `200` | **Requires auth** |
-| `POST /api/v1/conversations/{id}/messages/stream` | Streaming chat (SSE) | `200` | **Requires auth** |
-| `GET /api/v1/usage/summary` | Usage aggregates | `200` | **Requires auth** |
+1. Upload the demo documents from the Knowledge Library.
+2. Ask in Document Knowledge mode:
+   > How is Cortexa architected and how does it keep AI quality measurable?
+3. Show grounded citations.
+4. Run a RAG evaluation.
+5. Show AI Quality Analytics.
+6. Submit and review answer feedback.
+7. Show background ingestion/evaluation jobs in Operations.
 
-Authentication details, password reset, and curl examples: [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+See [Demo Guide](docs/DEMO_GUIDE.md) for a repeatable portfolio script.
 
-Development password-reset link (no real email):
+## Documentation
 
-```bash
-docker compose exec backend \
-  python -m app.cli.get_password_reset_link \
-  --email user@example.com
-```
-Conversations, streaming, and RAG-in-chat: [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md).
-Documents and one-shot RAG: [docs/RAG.md](docs/RAG.md).
+- [Architecture](docs/ARCHITECTURE.md)
+- [Architecture Diagrams](docs/ARCHITECTURE_DIAGRAMS.md)
+- [API Overview](docs/API_OVERVIEW.md)
+- [RAG & Retrieval](docs/RAG.md)
+- [Authentication](docs/AUTHENTICATION.md)
+- [Security Model](docs/SECURITY.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Demo Guide](docs/DEMO_GUIDE.md)
+- [Portfolio Case Study](docs/PORTFOLIO_CASE_STUDY.md)
+- [GitHub Publication Checklist](docs/GITHUB_PUBLICATION_CHECKLIST.md)
+- [GitHub Publishing Guide](docs/GITHUB_PUBLISHING.md)
+- [Live Demo Deployment](docs/LIVE_DEMO_DEPLOYMENT.md)
+- [Portfolio Release Checklist](docs/RELEASE_CHECKLIST.md)
+- [Documentation Index](docs/README.md)
 
----
+Historical implementation notes are intentionally separated under `docs/archive/development-history/` so the public documentation stays focused on the current product.
 
 ## Validation
 
@@ -148,25 +146,22 @@ Documents and one-shot RAG: [docs/RAG.md](docs/RAG.md).
 make validate
 ```
 
-This runs Compose config validation, secrets scan, backend pytest/ruff/mypy, frontend lint/typecheck/test/build, health/ready/system checks, auth + conversations smoke, frontend asset smoke, `.next` cache safety, and LLM status probe.
+The project validation gate covers repository safety, backend lint/type/tests, frontend checks/build, migrations, service health, authentication, and smoke tests.
 
----
+## Security and privacy
 
-## Documentation
+Cortexa is designed to avoid exposing system prompts, hidden reasoning, raw provider payloads, credentials, or full retrieved passages through analytics and admin quality workflows. Document retrieval remains owner-scoped, and archived/superseded versions are excluded from active RAG retrieval.
 
-| Doc | Contents |
-| --- | --- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Auth flow, cookies, tokens, curl examples |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow, troubleshooting |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phased plan |
-| [docs/RAG.md](docs/RAG.md) | Documents, embeddings, retrieval |
-| [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md) | Phase 5 conversations & chat |
-| [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) | Phase 6 agent tools & auditing |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security posture |
+Read the full [Security Model](docs/SECURITY.md) before deploying outside local development.
 
----
+## Portfolio positioning
+
+This repository demonstrates practical engineering for roles involving:
+
+**Python / FastAPI · RAG · pgvector · AI SaaS · Knowledge Assistants · LLM Evaluation · AI Observability · Background Processing · Enterprise Admin Systems**
+
+The emphasis is on measurable, maintainable AI systems rather than prompt-only demos.
 
 ## License
 
-Proprietary — all rights reserved unless otherwise stated.
+Proprietary — all rights reserved unless otherwise stated. Public source availability does not grant reuse, redistribution, or commercial rights.

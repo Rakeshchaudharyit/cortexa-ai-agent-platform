@@ -1,0 +1,53 @@
+cortexa-frontend  | 
+cortexa-frontend  | > @cortexa/frontend@0.1.0 dev
+cortexa-frontend  | > next dev --hostname 0.0.0.0 --port 3000
+cortexa-frontend  | 
+cortexa-frontend  |    ▲ Next.js 15.1.6
+cortexa-frontend  |    - Local:        http://localhost:3000
+cortexa-frontend  |    - Network:      http://0.0.0.0:3000
+cortexa-frontend  | 
+cortexa-frontend  |  ✓ Starting...
+cortexa-frontend  |  ✓ Ready in 991ms
+cortexa-frontend  |  ○ Compiling / ...
+cortexa-frontend  |  ✓ Compiled / in 2.2s (658 modules)
+cortexa-frontend  |  GET / 200 in 2441ms
+cortexa-frontend  |  ✓ Compiled /agent-runs in 423ms (681 modules)
+cortexa-frontend  |  GET /agent-runs 200 in 527ms
+cortexa-frontend  |  GET / 200 in 32ms
+cortexa-frontend  |  GET /agent-runs 200 in 22ms
+cortexa-frontend  |  GET /agent-runs 200 in 32ms
+cortexa-frontend  |  GET /agent-runs 200 in 40ms
+cortexa-frontend  |  GET /agent-runs 200 in 18ms
+cortexa-frontend  |  GET /agent-runs 200 in 20ms
+cortexa-frontend  |  GET /agent-runs 200 in 21ms
+cortexa-frontend  |  GET /agent-runs 200 in 25ms
+cortexa-frontend  |  GET /agent-runs 200 in 22ms
+cortexa-frontend  |  GET /agent-runs 200 in 25ms
+cortexa-frontend  |  GET /agent-runs 200 in 22ms
+cortexa-frontend  |  GET /agent-runs 200 in 22ms
+cortexa-frontend  |  GET /agent-runs 200 in 21ms
+cortexa-frontend  |  GET /agent-runs 200 in 23ms
+cortexa-frontend  |  GET /agent-runs 200 in 33ms
+cortexa-frontend  |  GET /agent-runs 200 in 23ms
+cortexa-frontend  |  GET /agent-runs 200 in 15ms
+cortexa-frontend  |  GET /agent-runs 200 in 24ms
+cortexa-frontend  |  GET /agent-runs 200 in 17ms
+cortexa-frontend  |  GET /agent-runs 200 in 30ms
+cortexa-frontend  |  ✓ Compiled /icon.svg in 137ms (375 modules)
+cortexa-frontend  |  GET /icon.svg?aed70f123021c8c9 200 in 200ms
+cortexa-frontend  |  GET / 200 in 84ms
+cortexa-frontend  |  GET / 200 in 109ms
+cortexa-frontend  |  GET / 200 in 213ms
+cortexa-frontend  |  GET / 200 in 103ms
+cortexa-frontend  |  GET / 200 in 59ms
+cortexa-frontend  |  GET / 200 in 70ms
+cortexa-frontend  |  GET / 200 in 45ms
+cortexa-frontend  |  GET / 200 in 49ms
+cortexa-frontend  |  GET / 200 in 80ms
+cortexa-frontend  |  GET / 200 in 69ms
+cortexa-frontend  |  GET / 200 in 75ms
+cortexa-frontend  |  GET / 200 in 36ms
+cortexa-frontend  |  GET / 200 in 45ms
+cortexa-frontend  |  GET / 200 in 46ms
+cortexa-frontend  |  GET / 200 in 48ms
+cortexa-frontend  |  GET / 200 in 59ms

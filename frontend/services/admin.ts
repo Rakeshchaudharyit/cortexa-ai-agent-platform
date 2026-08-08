@@ -1,13 +1,18 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth-token";
+import { getApiBaseUrl } from "@/lib/config";
 import type {
   AdminAnalyticsResponse,
+  AdminBackgroundJob,
   AdminAuditEventSummary,
   AdminConversationDeletionImpact,
   AdminConversationSummary,
   AdminDashboardResponse,
   AdminDocumentDeletionImpact,
   AdminDocumentSummary,
+  AdminFeedbackItem,
+  AdminFeedbackList,
+  AdminJobList,
   AdminMemoryDeletionImpact,
   AdminMemorySummary,
   AdminPaginated,
@@ -265,4 +270,147 @@ export async function reportAdminLoginDenied() {
     ...auth(),
     acceptStatuses: [204],
   });
+}
+
+export async function fetchEvaluationCases() {
+  return apiGet<{ items: import("@/types/admin").RagEvaluationCase[]; total: number }>(
+    "/api/v1/admin/evaluations/cases",
+    auth(),
+  );
+}
+
+export async function createEvaluationCase(body: {
+  owner_user_id: string;
+  name: string;
+  question: string;
+  expected_keywords: string[];
+  should_answer: boolean;
+  enabled: boolean;
+}) {
+  return apiPost<import("@/types/admin").RagEvaluationCase>(
+    "/api/v1/admin/evaluations/cases",
+    { ...auth(), json: body, acceptStatuses: [201] },
+  );
+}
+
+export async function deleteEvaluationCase(caseId: string) {
+  return apiDelete<null>(
+    `/api/v1/admin/evaluations/cases/${encodeURIComponent(caseId)}`,
+    { ...auth(), acceptStatuses: [204] },
+  );
+}
+
+export async function runRagEvaluation() {
+  return apiPost<import("@/types/admin").RagEvaluationRun>(
+    "/api/v1/admin/evaluations/runs",
+    { ...auth(), json: {}, acceptStatuses: [202] },
+  );
+}
+
+export async function queueEvaluationExport(runId: string) {
+  return apiPost<{ job_id: string }>(
+    `/api/v1/admin/evaluations/runs/${encodeURIComponent(runId)}/export`,
+    { ...auth(), json: {}, acceptStatuses: [202] },
+  );
+}
+
+export async function downloadEvaluationExport(jobId: string) {
+  const token = getAccessToken();
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/v1/admin/evaluations/exports/${encodeURIComponent(jobId)}/download`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "same-origin" },
+  );
+  if (!response.ok) return { ok: false as const, error: `Download failed with status ${response.status}` };
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] ?? `rag-evaluation-${jobId}.csv`;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return { ok: true as const };
+}
+
+export async function fetchEvaluationRuns() {
+  return apiGet<{ items: import("@/types/admin").RagEvaluationRun[]; total: number }>(
+    "/api/v1/admin/evaluations/runs",
+    auth(),
+  );
+}
+
+export async function fetchEvaluationRun(runId: string) {
+  return apiGet<import("@/types/admin").RagEvaluationRunDetail>(
+    `/api/v1/admin/evaluations/runs/${runId}`,
+    auth(),
+  );
+}
+
+
+export async function fetchAdminFeedback(params: { status?: string; sentiment?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.sentiment) qs.set("sentiment", params.sentiment);
+  const query = qs.toString();
+  return apiGet<AdminFeedbackList>(`/api/v1/admin/feedback${query ? `?${query}` : ""}`, auth());
+}
+
+export async function updateAdminFeedback(
+  feedbackId: string,
+  body: { status: "open" | "reviewed" | "resolved"; admin_note?: string },
+) {
+  return apiPatch<AdminFeedbackItem>(`/api/v1/admin/feedback/${feedbackId}`, {
+    ...auth(),
+    json: body,
+  });
+}
+
+export async function fetchAdminJobs(status?: string, jobType?: string) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (jobType) params.set("job_type", jobType);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return apiGet<AdminJobList>(`/api/v1/admin/jobs${query}`, auth());
+}
+
+export async function createAdminDemoJob(idempotencyKey?: string) {
+  return apiRequest<AdminBackgroundJob>(
+    "POST",
+    "/api/v1/admin/jobs/demo",
+    {
+      ...auth(),
+      json: {
+        job_type: "demo.validation",
+        payload: { source: "admin_job_monitor" },
+        idempotency_key: idempotencyKey ?? null,
+        max_attempts: 3,
+      },
+      acceptStatuses: [201],
+    },
+  );
+}
+
+export async function cancelAdminJob(jobId: string) {
+  return apiPost<AdminBackgroundJob>(
+    `/api/v1/admin/jobs/${jobId}/cancel`,
+    { ...auth(), json: {} },
+  );
+}
+
+export async function requeueAdminJob(jobId: string) {
+  return apiPost<AdminBackgroundJob>(
+    `/api/v1/admin/jobs/${jobId}/requeue`,
+    { ...auth(), json: {} },
+  );
+}
+
+export async function bulkAdminJobs(jobIds: string[], action: "cancel" | "requeue") {
+  return apiPost<{ action: string; requested: number; changed: number; skipped: number }>(
+    "/api/v1/admin/jobs/bulk",
+    { ...auth(), json: { job_ids: jobIds, action } },
+  );
 }

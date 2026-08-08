@@ -10,6 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from starlette.requests import ClientDisconnect
 
 from app.api.deps import ChatServiceDep, ConversationServiceDep, CurrentActiveUser, DbSessionDep
@@ -29,7 +30,10 @@ from app.conversations.schemas import (
 )
 from app.core.exceptions import AppError
 from app.llm.schemas import StreamEvent, StreamEventType
-from app.models.enums import ConversationStatus
+from app.feedback_schemas import MessageFeedbackRequest, MessageFeedbackView
+from app.models.conversation import Message
+from app.models.enums import ConversationStatus, MessageRole, MessageStatus
+from app.models.feedback import MessageFeedback
 from app.services.conversations import conversation_to_summary, message_to_response
 
 logger = logging.getLogger("cortexa.api.conversations")
@@ -236,6 +240,89 @@ async def send_message(
     return await chat.send_message(session, user, conversation_id, body)
 
 
+
+
+@router.post(
+    "/{conversation_id}/messages/{message_id}/feedback",
+    response_model=MessageFeedbackView,
+    summary="Create or update feedback for an assistant response",
+)
+async def upsert_message_feedback(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    body: MessageFeedbackRequest,
+    session: DbSessionDep,
+    user: CurrentActiveUser,
+) -> MessageFeedbackView:
+    message = await session.scalar(
+        select(Message).where(
+            Message.id == message_id,
+            Message.conversation_id == conversation_id,
+            Message.user_id == user.id,
+            Message.role == MessageRole.assistant,
+            Message.status == MessageStatus.complete,
+            Message.is_active.is_(True),
+        )
+    )
+    if message is None:
+        raise AppError(code="message_not_found", message="Assistant response not found", status_code=404)
+    item = await session.scalar(
+        select(MessageFeedback).where(
+            MessageFeedback.message_id == message_id,
+            MessageFeedback.user_id == user.id,
+        )
+    )
+    if item is None:
+        item = MessageFeedback(
+            message_id=message.id,
+            conversation_id=conversation_id,
+            user_id=user.id,
+            sentiment=body.sentiment,
+            reason=body.reason,
+            comment=body.comment,
+        )
+        session.add(item)
+    else:
+        item.sentiment = body.sentiment
+        item.reason = body.reason
+        item.comment = body.comment
+        item.status = "open"
+        item.reviewed_by_user_id = None
+        item.reviewed_at = None
+        item.admin_note = None
+    await session.commit()
+    await session.refresh(item)
+    return MessageFeedbackView(
+        id=item.id, sentiment=item.sentiment, reason=item.reason, comment=item.comment,
+        status=item.status, created_at=item.created_at, updated_at=item.updated_at
+    )
+
+
+@router.delete(
+    "/{conversation_id}/messages/{message_id}/feedback",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Remove feedback from an assistant response",
+)
+async def delete_message_feedback(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    session: DbSessionDep,
+    user: CurrentActiveUser,
+) -> Response:
+    item = await session.scalar(
+        select(MessageFeedback).where(
+            MessageFeedback.message_id == message_id,
+            MessageFeedback.conversation_id == conversation_id,
+            MessageFeedback.user_id == user.id,
+        )
+    )
+    if item is not None:
+        await session.delete(item)
+        await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/{conversation_id}/messages/stream",
     summary="Send a streaming multi-turn chat message (SSE)",
@@ -294,8 +381,12 @@ async def stream_message(
                 data={"error": {"code": exc.code, "message": exc.message}},
             )
             yield error_event.to_sse().encode("utf-8")
-        except Exception:
-            logger.exception("conversation_stream_unexpected_failure")
+        except Exception as exc:
+            logger.exception(
+                "conversation_stream_unexpected_failure exception_type=%s exception_message=%s",
+                type(exc).__name__,
+                str(exc),
+            )
             error_event = StreamEvent(
                 event=StreamEventType.error,
                 data={

@@ -1,11 +1,11 @@
 # Infrastructure
 
-Docker, reverse-proxy, and observability assets for Cortexa.
+Infrastructure assets for Cortexa AI Knowledge Platform.
 
-| Path | Purpose |
-| --- | --- |
-| `docker/` | Extra Docker assets beyond root `docker-compose.yml` (Phase 1+) |
-| `nginx/` | Optional reverse-proxy configs (hardening phases) |
-| `observability/` | Metrics / tracing / logging stack definitions (Phase 11) |
+- `docker-compose.yml` — local development/demo topology with bind-mounted Next.js development runtime.
+- `docker-compose.production.yml` — production-oriented single-host topology with private PostgreSQL/Redis/Ollama services, independent worker, standalone Next.js image and Caddy HTTPS ingress.
+- `Caddyfile` — same-origin routing for the public frontend and `/api/*` FastAPI endpoints.
+- `frontend/Dockerfile.production` — standalone Next.js production image.
+- `backend/Dockerfile.production` — FastAPI runtime image without development/test dependencies.
 
-Phase 0 keeps these directories reserved. Root Compose remains the local service plan.
+See [Deployment Guide](../docs/DEPLOYMENT.md) and [Live Demo Deployment](../docs/LIVE_DEMO_DEPLOYMENT.md).

@@ -55,7 +55,7 @@ export function MarkdownContent({ content, className }: Props) {
       const isBlock = langClass?.startsWith("language-");
       if (isBlock) {
         return (
-          <pre className="my-2 overflow-x-auto rounded-lg bg-slate-950/60 p-3 text-xs text-slate-200 ring-1 ring-white/10">
+          <pre className="my-2 overflow-x-auto cx-scrollbar rounded-lg bg-slate-950/60 p-3 text-xs text-slate-200 ring-1 ring-white/10">
             <code className={langClass}>{children}</code>
           </pre>
         );

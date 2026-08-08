@@ -31,6 +31,15 @@ class RunBudget:
     def duration_ms(self) -> int:
         return int(self.elapsed_seconds * 1000)
 
+    @property
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.run_timeout_seconds - self.elapsed_seconds)
+
+    def bounded_timeout(self, requested_seconds: float, *, floor_seconds: float = 0.1) -> float:
+        """Return a timeout that cannot outlive the run-level deadline."""
+        self.check_run_timeout()
+        return max(floor_seconds, min(float(requested_seconds), self.remaining_seconds))
+
     def check_run_timeout(self) -> None:
         if self.elapsed_seconds > self.run_timeout_seconds:
             raise AgentTimeoutError("Agent run timed out")

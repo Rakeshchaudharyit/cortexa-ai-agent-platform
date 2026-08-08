@@ -10,7 +10,7 @@ from app.core.config import Settings
 
 # Defaults for DB-backed display / operational overrides.
 SETTING_DEFAULTS: dict[str, Any] = {
-    "platform_display_name": "Cortexa AI Agent Platform",
+    "platform_display_name": "Cortexa AI Knowledge Platform",
     "support_email": "support@example.com",
     "default_timezone": "UTC",
     "maintenance_banner": "",

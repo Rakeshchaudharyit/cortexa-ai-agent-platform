@@ -124,7 +124,7 @@ function stubAuthApi(handlers: {
       }
       if (url.includes("/api/v1/system/info") && method === "GET") {
         return Response.json({
-          name: "Cortexa AI Agent Platform",
+          name: "Cortexa AI Knowledge Platform",
           version: "0.1.0",
           environment: "development",
           api_version: "v1",
@@ -251,7 +251,7 @@ describe("authentication UI", () => {
 
     await waitFor(() => {
       expect(getAccessToken()).toBe("access-token-memory-only");
-      expect(replaceMock).toHaveBeenCalledWith("/");
+      expect(replaceMock).toHaveBeenCalledWith("/workspace");
     });
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -278,7 +278,7 @@ describe("authentication UI", () => {
 
     await waitFor(() => {
       expect(getAccessToken()).toBe("access-token-memory-only");
-      expect(replaceMock).toHaveBeenCalledWith("/");
+      expect(replaceMock).toHaveBeenCalledWith("/workspace");
     });
   });
 

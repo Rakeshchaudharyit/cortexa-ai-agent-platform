@@ -2,7 +2,7 @@
   "name": "cortexa-ai-agent-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "Cortexa AI Agent Platform — monorepo root (Phase 1 application foundation).",
+  "description": "Cortexa AI Knowledge Platform — full-stack enterprise RAG portfolio monorepo.",
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"

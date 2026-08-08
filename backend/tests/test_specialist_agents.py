@@ -317,3 +317,67 @@ async def test_unregistered_tool_rejected(settings: Settings, db_session: AsyncS
         user=user,
     )
     assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_knowledge_uses_preloaded_context_without_explicit_ids(settings: Settings) -> None:
+    agent = KnowledgeSpecialist(settings=settings, retrieval_service=None)
+    result = await agent.execute(
+        task=AgentTaskRequest(
+            sequence=1,
+            agent_name="knowledge",
+            task_type="retrieve",
+            objective="Review the selected document",
+        ),
+        context=_envelope(
+            allowed_document_ids=[],
+            document_context=[
+                {
+                    "index": 1,
+                    "document_id": str(uuid.uuid4()),
+                    "title": "Budget.txt",
+                    "content": "The approved baseline budget is 20000.",
+                }
+            ],
+        ),
+    )
+    assert result.success
+    assert result.output.get("retrieval_count") == 1
+    assert "20000" in result.result_summary
+
+
+@pytest.mark.asyncio
+async def test_tool_missing_percentage_baseline_does_not_fabricate_zero(
+    settings: Settings, db_session: AsyncSession
+) -> None:
+    user = _user("tool-no-baseline@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    registry = create_builtin_registry(settings)
+    executor = ToolExecutor(settings=settings, registry=registry)
+    agent = ToolSpecialist(
+        settings=settings,
+        tool_executor=executor,
+        tool_registry=registry,
+    )
+    result = await agent.execute(
+        task=AgentTaskRequest(
+            sequence=1,
+            agent_name="tool",
+            task_type="compute",
+            objective="Calculate a 15 percent contingency on the stated budget",
+            allowed_tools=["calculator"],
+        ),
+        context=_envelope(
+            user_request="Calculate a 15 percent contingency on the stated budget.",
+            allowed_tools=["calculator"],
+            user_id=user.id,
+        ),
+        session=db_session,
+        user=user,
+    )
+    assert result.success
+    assert result.tool_calls_used == 1
+    payload = result.output.get("tool_result") or {}
+    assert payload.get("calculation_performed") is False
+    assert "baseline" in str(payload.get("reason") or "").lower()

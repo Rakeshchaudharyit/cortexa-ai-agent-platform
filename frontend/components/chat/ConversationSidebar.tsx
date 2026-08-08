@@ -131,17 +131,17 @@ export function ConversationSidebar({ activeId, onNewConversation }: Props) {
 
   return (
     <aside
-      className="flex h-full w-72 shrink-0 flex-col border-r border-white/10 bg-black/20 backdrop-blur-sm"
+      className="flex h-full w-full min-w-0 flex-col border-r border-white/10 bg-slate-950/55 backdrop-blur-xl md:w-72 xl:w-80"
       aria-label="Conversations sidebar"
       data-testid="conversation-sidebar"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-white/10 p-3">
+      <div className="border-b border-white/[0.07] p-3">
         <button
           type="button"
           onClick={() => void handleNewChat()}
           disabled={creatingNew}
-          className="flex-1 rounded-lg bg-cyan-500/15 px-3 py-2 text-sm font-medium text-cyan-100 ring-1 ring-cyan-400/25 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
           data-testid="new-chat-button"
           aria-label="New chat"
         >
@@ -156,18 +156,19 @@ export function ConversationSidebar({ activeId, onNewConversation }: Props) {
           placeholder="Search conversations…"
           value={searchQ}
           onChange={(e) => setSearchQ(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-slate-950/40 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-cyan-400/40"
+          className="w-full rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-cyan-400/25 focus:bg-white/[0.05]"
           aria-label="Search conversations"
           data-testid="conversation-search"
         />
       </div>
 
       {/* Archived toggle */}
-      <div className="flex items-center justify-end border-b border-white/10 px-3 py-1.5">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-3 py-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Conversations</span>
         <button
           type="button"
           onClick={() => setShowArchived((v) => !v)}
-          className="text-xs text-slate-400 hover:text-slate-200 transition"
+          className="text-xs text-slate-500 transition hover:text-slate-200"
           data-testid="archived-toggle"
         >
           {showArchived ? "Hide archived" : "Show archived"}
@@ -302,8 +303,8 @@ function ConversationItem({
     <div
       role="listitem"
       data-testid={`conversation-item-${conv.id}`}
-      className={`group relative flex flex-col gap-0.5 px-3 py-2.5 cursor-pointer transition hover:bg-white/5 ${
-        isActive ? "bg-cyan-400/10 ring-inset ring-1 ring-cyan-400/20" : ""
+      className={`group relative mx-2 my-1 flex cursor-pointer flex-col gap-0.5 rounded-xl px-3 py-2.5 transition hover:bg-white/[0.045] ${
+        isActive ? "bg-cyan-400/[0.08] ring-1 ring-inset ring-cyan-400/15" : ""
       }`}
       onClick={isRenaming ? undefined : onSelect}
       onKeyDown={(e) => {

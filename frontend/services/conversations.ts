@@ -18,6 +18,7 @@ import type {
   ConversationDetail,
   ConversationListResponse,
   ConversationMessage,
+  MessageFeedback,
   ConversationSummary,
   CreateMessageResponse,
   SSEEvent,
@@ -139,6 +140,8 @@ export type StreamMessageOpts = {
   top_k?: number;
   temperature?: number;
   max_tokens?: number;
+  force_multi_agent?: boolean;
+  execution_profile?: "fast" | "balanced" | "deep";
 };
 
 /**
@@ -307,3 +310,28 @@ async function _authenticatedPatch<T>(path: string, json: unknown): Promise<ApiR
   return { ok: true, data, status: response.status };
 }
 
+
+
+export async function submitMessageFeedback(
+  conversationId: string,
+  messageId: string,
+  body: {
+    sentiment: "helpful" | "not_helpful";
+    reason?: "incorrect" | "missing_source" | "not_relevant" | "incomplete" | "unclear" | "other";
+    comment?: string;
+  },
+): Promise<ApiResult<MessageFeedback>> {
+  return authenticatedPost<MessageFeedback>(
+    `/api/v1/conversations/${conversationId}/messages/${messageId}/feedback`,
+    body,
+  );
+}
+
+export async function removeMessageFeedback(
+  conversationId: string,
+  messageId: string,
+): Promise<ApiResult<null>> {
+  return authenticatedDelete(
+    `/api/v1/conversations/${conversationId}/messages/${messageId}/feedback`,
+  );
+}

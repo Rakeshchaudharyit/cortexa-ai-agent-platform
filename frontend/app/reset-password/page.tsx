@@ -68,7 +68,7 @@ function ResetPasswordForm() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col gap-8 px-6 py-12 sm:px-10">
+    <main id="main-content" tabIndex={-1} className="mx-auto flex min-h-screen w-full max-w-lg flex-col gap-8 px-6 py-12 sm:px-10">
       <header className="flex flex-col gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/90">
           Authentication

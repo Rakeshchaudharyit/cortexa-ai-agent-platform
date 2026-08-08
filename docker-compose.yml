@@ -1,4 +1,4 @@
-# Cortexa AI Agent Platform — local Docker Compose (Phase 5)
+# Cortexa AI Knowledge Platform — local Docker Compose
 # Real runnable services: backend, frontend, postgres (pgvector), redis, ollama.
 # Ollama runs without pulling models. Models must be pulled explicitly.
 # Embedding model example:
@@ -8,6 +8,7 @@ name: cortexa
 
 services:
   backend:
+    image: cortexa-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -15,7 +16,7 @@ services:
     env_file:
       - .env
     environment:
-      APP_NAME: ${APP_NAME:-Cortexa AI Agent Platform}
+      APP_NAME: ${APP_NAME:-Cortexa AI Knowledge Platform}
       APP_ENV: ${APP_ENV:-development}
       APP_DEBUG: ${APP_DEBUG:-false}
       APP_VERSION: ${APP_VERSION:-0.1.0}
@@ -125,6 +126,44 @@ services:
       timeout: 5s
       retries: 5
       start_period: 25s
+    restart: unless-stopped
+
+  worker:
+    image: cortexa-backend
+    container_name: cortexa-worker
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-cortexa_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-cortexa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_development_only}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cortexa}:${POSTGRES_PASSWORD:-local_development_only}@postgres:5432/${POSTGRES_DB:-cortexa_agent}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_URL: redis://redis:6379/${REDIS_DB:-0}
+      DOCUMENT_STORAGE_PATH: /var/lib/cortexa/documents
+      WORKER_ID: ${WORKER_ID:-cortexa-worker-1}
+    command: ["python", "-m", "app.jobs.worker"]
+    volumes:
+      - cortexa_documents_data:/var/lib/cortexa/documents
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cortexa-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from redis import Redis; import sys; r=Redis(host='redis',port=6379,decode_responses=True); sys.exit(0 if r.get('cortexa:jobs:worker:heartbeat') else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   frontend:

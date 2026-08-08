@@ -24,6 +24,7 @@ import type {
   SSEToolExecutionStartedData,
   SSEToolExecutionSucceededData,
 } from "@/types/api";
+import type { AgentLifecycleEventData, AgentLifecycleEventName } from "@/types/agents";
 
 export type StreamCallbacks = {
   onStart?: (data: SSEStartData) => void;
@@ -39,6 +40,7 @@ export type StreamCallbacks = {
   onToolExecutionSucceeded?: (data: SSEToolExecutionSucceededData) => void;
   onToolExecutionFailed?: (data: SSEToolExecutionFailedData) => void;
   onMemoryEvent?: (event: SSEEvent) => void;
+  onAgentEvent?: (event: { event: AgentLifecycleEventName; data: AgentLifecycleEventData }) => void;
 };
 
 type StreamState = "idle" | "streaming" | "done" | "error";
@@ -153,6 +155,25 @@ export function useStream() {
               break;
             case "agent_started":
               // Keep existing start IDs; only signal that the agent loop began.
+              break;
+            case "run_started":
+            case "complexity_classified":
+            case "planning_started":
+            case "plan_created":
+            case "safety_checked":
+            case "task_ready":
+            case "task_started":
+            case "task_completed":
+            case "task_failed":
+            case "task_skipped":
+            case "handoff":
+            case "approval_required":
+            case "approval_resolved":
+            case "run_cancelled":
+            case "run_completed":
+            case "run_failed":
+            case "run_timed_out":
+              callbacks.onAgentEvent?.(event);
               break;
             default:
               break;

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections import Counter
 from typing import Any
 
 from app.conversations.schemas import MessageCitationResponse
@@ -68,23 +69,67 @@ def message_citation_to_response(citation: MessageCitation) -> MessageCitationRe
     )
 
 
+def _normalized_terms(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _near_duplicate(left: str, right: str, *, threshold: float = 0.88) -> bool:
+    """Return True for highly overlapping passages without expensive embeddings."""
+    left_terms = _normalized_terms(left)
+    right_terms = _normalized_terms(right)
+    if not left_terms or not right_terms:
+        return False
+    left_counts = Counter(left_terms)
+    right_counts = Counter(right_terms)
+    overlap = sum((left_counts & right_counts).values())
+    denominator = min(sum(left_counts.values()), sum(right_counts.values()))
+    return denominator > 0 and (overlap / denominator) >= threshold
+
+
 def dedupe_retrieved_chunks(retrieved: list[Any]) -> list[Any]:
-    """Stable-order dedupe by chunk id (then document id + chunk_index)."""
-    seen: set[uuid.UUID] = set()
+    """Stable-order dedupe by identity and near-identical passage content."""
+    seen_ids: set[uuid.UUID] = set()
+    accepted_texts: list[str] = []
     unique: list[Any] = []
     for item in retrieved:
-        chunk_id = getattr(getattr(item, "chunk", None), "id", None)
-        if chunk_id is None:
-            unique.append(item)
+        chunk = getattr(item, "chunk", None)
+        chunk_id = getattr(chunk, "id", None)
+        if chunk_id is not None:
+            if chunk_id in seen_ids:
+                continue
+            seen_ids.add(chunk_id)
+        content = str(getattr(chunk, "content", "") or "").strip()
+        if content and any(_near_duplicate(content, prior) for prior in accepted_texts):
             continue
-        if chunk_id in seen:
-            continue
-        seen.add(chunk_id)
         unique.append(item)
+        if content:
+            accepted_texts.append(content)
     return unique
 
 
-def normalize_grounded_answer(text: str) -> str:
+def select_context_chunks(retrieved: list[Any], *, max_chars: int) -> list[Any]:
+    """Select complete passages that fit the context budget in ranked order.
+
+    The final passage is never silently truncated. This keeps citation excerpts and
+    the actual model context aligned and avoids citations to text the model did not see.
+    """
+    selected: list[Any] = []
+    used = 0
+    for item in dedupe_retrieved_chunks(retrieved):
+        content = str(getattr(getattr(item, "chunk", None), "content", "") or "").strip()
+        if not content:
+            continue
+        index = len(selected) + 1
+        block_chars = len(f"[{index}]\n{content}")
+        separator = 2 if selected else 0
+        if used + separator + block_chars > max_chars:
+            continue
+        selected.append(item)
+        used += separator + block_chars
+    return selected
+
+
+def normalize_grounded_answer(text: str, *, citation_count: int | None = None) -> str:
     """Light cleanup for grounded answers — prefer prompt fixes over rewriting.
 
     - Strip Source:/Citation ID: prose lines (cards carry that metadata)
@@ -101,4 +146,13 @@ def normalize_grounded_answer(text: str) -> str:
     while prev != cleaned:
         prev = cleaned
         cleaned = _ADJACENT_PHRASE_DUP.sub(r"\1", cleaned)
+    if citation_count is not None:
+
+        def _valid_marker(match: re.Match[str]) -> str:
+            index = int(match.group(1))
+            return match.group(0) if 1 <= index <= citation_count else ""
+
+        cleaned = re.sub(r"\[(\d+)\]", _valid_marker, cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        cleaned = re.sub(r" +([.,;:!?])", r"\1", cleaned)
     return cleaned.strip()

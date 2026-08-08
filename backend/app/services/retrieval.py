@@ -77,6 +77,8 @@ class RetrievalService:
                 select(Document.id).where(
                     Document.user_id == user.id,
                     Document.id.in_(unique_ids),
+                    Document.archived_at.is_(None),
+                    Document.is_active_version.is_(True),
                 )
             )
             found = set(found_rows.all())
@@ -112,6 +114,8 @@ class RetrievalService:
                 DocumentChunk.user_id == user.id,
                 Document.user_id == user.id,
                 Document.status == DocumentStatus.ready,
+                Document.archived_at.is_(None),
+                    Document.is_active_version.is_(True),
             )
             .order_by(
                 similarity_expr.desc(),

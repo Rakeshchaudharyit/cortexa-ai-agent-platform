@@ -88,7 +88,7 @@ function stubBackend(handlers: {
       return (
         handlers.info?.() ??
         Response.json({
-          name: "Cortexa AI Agent Platform",
+          name: "Cortexa AI Knowledge Platform",
           version: "0.1.0",
           environment: "development",
           api_version: "v1",
@@ -214,97 +214,18 @@ describe("PlatformCapabilities", () => {
   });
 });
 
-describe("HomePage Phase 7 status", () => {
-  it("shows Phase 7 milestone and Long-Term Memory capability", async () => {
+describe("Public portfolio landing", () => {
+  it("presents the stable product story without development milestones", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/v1/auth/refresh")) {
           return Response.json({
-            user: {
-              id: "11111111-1111-1111-1111-111111111111",
-              email: "demo@example.com",
-              full_name: "Demo User",
-              role: "user",
-              status: "active",
-              is_email_verified: false,
-              created_at: "2026-07-28T00:00:00Z",
-              last_login_at: null,
-            },
-            access_token: "access-token",
-            token_type: "bearer",
-            expires_in: 900,
-            access_token_expires_at: "2026-07-28T00:15:00Z",
-          });
+            error: { code: "unauthorized", message: "Not authenticated" },
+          }, { status: 401 });
         }
-        if (url.includes("/api/v1/auth/me")) {
-          return Response.json({
-            id: "11111111-1111-1111-1111-111111111111",
-            email: "demo@example.com",
-            full_name: "Demo User",
-            role: "user",
-            status: "active",
-            is_email_verified: false,
-            created_at: "2026-07-28T00:00:00Z",
-            last_login_at: null,
-          });
-        }
-        if (url.includes("/api/v1/documents")) {
-          return Response.json({ items: [], total: 0, limit: 50, offset: 0 });
-        }
-        if (url.endsWith("/health") || url.includes("/health?")) {
-          return Response.json({
-            status: "ok",
-            service: "backend",
-            version: "0.1.0",
-            environment: "development",
-          });
-        }
-        if (url.includes("/ready")) {
-          return Response.json({
-            status: "ready",
-            checks: {
-              database: { status: "ok" },
-              redis: { status: "ok" },
-            },
-          });
-        }
-        if (url.includes("/api/v1/llm/status")) {
-          return Response.json({
-            provider: "ollama",
-            model: "qwen2.5:7b",
-            provider_reachable: true,
-            model_available: true,
-            status: "ready",
-            message: "Model available",
-          });
-        }
-        if (url.includes("/api/v1/embeddings/status")) {
-          return Response.json({
-            provider: "ollama",
-            model: "nomic-embed-text",
-            provider_reachable: true,
-            model_available: true,
-            configured_dimension: 768,
-            status: "ready",
-            message: "Embedding model available",
-          });
-        }
-        return Response.json({
-          name: "Cortexa AI Agent Platform",
-          version: "0.1.0",
-          environment: "development",
-          api_version: "v1",
-          features: {
-            ollama: true,
-            auth: true,
-            rag: true,
-            memory: true,
-            tools: true,
-            voice: false,
-          },
-        });
+        return Response.json({});
       }),
     );
 
@@ -314,30 +235,14 @@ describe("HomePage Phase 7 status", () => {
       </AuthProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("phase-badge")).toHaveTextContent(
-        "Phase 7 — Long-Term Memory & Personalization",
-      );
-    });
-
-    expect(screen.getByText("Current milestone: Long-Term Memory & Personalization")).toBeTruthy();
-    expect(screen.getByTestId("platform-status-badge")).toHaveTextContent(
-      "Platform status: Development-ready",
-    );
-    expect(screen.queryByText(/Phase 4/i)).toBeNull();
-    expect(screen.queryByText(/Phase 6 — Agent Tools/i)).toBeNull();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("quick-action-tools").getAttribute("href")).toBe("/tools");
-    });
-    expect(screen.getByTestId("quick-action-memories").getAttribute("href")).toBe("/memories");
-    expect(screen.getByTestId("agent-tools-overview")).toBeTruthy();
-    expect(screen.getByTestId("capabilities-summary")).toBeTruthy();
-    expect(screen.getByTestId("capability-agent-tools")).toBeTruthy();
-    expect(screen.getByTestId("capability-long-term-memory")).toBeTruthy();
+    expect(screen.getByText("Private knowledge.")).toBeTruthy();
+    expect(screen.getByText("Grounded answers.")).toBeTruthy();
+    expect(screen.getByText("Measurable AI quality.")).toBeTruthy();
+    expect(screen.getByText("Built beyond the chatbot demo.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Explore product tour/i }).getAttribute("href")).toBe("/demo");
 
     const body = document.body.textContent ?? "";
-    expect(body).not.toMatch(/cortexa_agent(_test)?/i);
+    expect(body).not.toMatch(/Phase \d|milestone/i);
     expect(body).not.toMatch(/POSTGRES_PASSWORD|REDIS_PASSWORD|password\s*=/i);
   });
 });

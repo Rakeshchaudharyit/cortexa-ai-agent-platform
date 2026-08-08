@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from app.agents.base import BaseAgent
 from app.agents.capabilities import AgentCapability
 from app.agents.context import AgentContextEnvelope
+from app.agents.deterministic_planner import DeterministicPlanningEngine
 from app.agents.exceptions import AgentPlanValidationError
 from app.agents.registry import AgentRegistry
 from app.agents.schemas import (
@@ -54,6 +55,7 @@ class PlanningSpecialist(BaseAgent):
         self.settings = settings
         self.registry = registry
         self.llm_service = llm_service
+        self.deterministic_engine = DeterministicPlanningEngine()
 
     async def execute(
         self,
@@ -99,6 +101,7 @@ class PlanningSpecialist(BaseAgent):
         selected_document_ids: list[str] | None = None,
         memory_enabled: bool = False,
         allowed_agents: frozenset[str] | None = None,
+        execution_profile: str = "fast",
     ) -> AgentPlan:
         """Build a plan via deterministic templates, with optional LLM assist."""
         settings = self.settings
@@ -106,6 +109,25 @@ class PlanningSpecialist(BaseAgent):
         if settings is None or registry is None:
             raise AgentPlanValidationError("Planning agent is not configured")
 
+        deterministic = self.deterministic_engine.build_plan(
+            user_request=user_request,
+            decision=decision,
+            enabled_tool_names=enabled_tool_names or frozenset(),
+            selected_document_ids=selected_document_ids or [],
+            memory_enabled=memory_enabled,
+            execution_profile=execution_profile,
+        )
+        if deterministic is not None:
+            self._validate(deterministic, enabled_tool_names=enabled_tool_names)
+            logger.info(
+                "planning_strategy_selected strategy=deterministic task_count=%s",
+                len(deterministic.tasks),
+            )
+            return deterministic
+
+        # Compatibility templates remain available for older classifier reason
+        # codes. The new deterministic engine handles browser-forced and common
+        # natural-language workflows first.
         template = self._template_plan(
             user_request=user_request,
             decision=decision,
@@ -114,7 +136,12 @@ class PlanningSpecialist(BaseAgent):
             memory_enabled=memory_enabled,
         )
         if template is not None:
+            template = template.model_copy(update={"planning_strategy": "deterministic"})
             self._validate(template, enabled_tool_names=enabled_tool_names)
+            logger.info(
+                "planning_strategy_selected strategy=deterministic_compat task_count=%s",
+                len(template.tasks),
+            )
             return template
 
         max_replans = settings.agent_max_replans
@@ -127,7 +154,9 @@ class PlanningSpecialist(BaseAgent):
                     enabled_tool_names=enabled_tool_names or frozenset(),
                     allowed_agents=allowed_agents,
                 )
+                plan = plan.model_copy(update={"planning_strategy": "llm"})
                 self._validate(plan, enabled_tool_names=enabled_tool_names)
+                logger.info("planning_strategy_selected strategy=llm task_count=%s", len(plan.tasks))
                 return plan
             except (AgentPlanValidationError, ValueError) as exc:
                 last_error = exc
@@ -156,6 +185,7 @@ class PlanningSpecialist(BaseAgent):
             final_response_agent="conversation",
             estimated_steps=1,
             requires_approval=decision.requires_approval,
+            planning_strategy="fallback",
         )
         if last_error is not None and settings.multi_agent_enabled:
             # Policy: when multi-agent was required, surface a safe error via validation
@@ -173,9 +203,14 @@ class PlanningSpecialist(BaseAgent):
         enabled_tool_names: frozenset[str] | None,
     ) -> None:
         assert self.settings is not None and self.registry is not None
+        effective_max_tasks = (
+            min(self.settings.agent_max_tasks, 4)
+            if self.settings.agent_interactive_fast_mode
+            else self.settings.agent_max_tasks
+        )
         self.registry.validate_plan(
             plan,
-            max_tasks=self.settings.agent_max_tasks,
+            max_tasks=effective_max_tasks,
             max_depth=self.settings.agent_max_depth,
             max_tool_calls=self.settings.agent_max_tool_calls,
             enabled_tool_names=enabled_tool_names,

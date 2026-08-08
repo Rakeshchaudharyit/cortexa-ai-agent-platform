@@ -49,6 +49,7 @@ class MessageStatus(StrEnum):
     pending = "pending"
     complete = "complete"
     failed = "failed"
+    dead_lettered = "dead_lettered"
     cancelled = "cancelled"
 
 
@@ -140,6 +141,7 @@ class AgentRunStatus(StrEnum):
     awaiting_approval = "awaiting_approval"
     completed = "completed"
     failed = "failed"
+    dead_lettered = "dead_lettered"
     cancelled = "cancelled"
     timed_out = "timed_out"
 
@@ -165,4 +167,16 @@ class AgentApprovalStatus(StrEnum):
     approved = "approved"
     rejected = "rejected"
     expired = "expired"
+    cancelled = "cancelled"
+
+
+class JobStatus(StrEnum):
+    """Durable background job lifecycle."""
+
+    queued = "queued"
+    running = "running"
+    retrying = "retrying"
+    succeeded = "succeeded"
+    failed = "failed"
+    dead_lettered = "dead_lettered"
     cancelled = "cancelled"

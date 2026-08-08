@@ -11,6 +11,9 @@ from app.api.routes.admin import (
     conversations,
     dashboard,
     documents,
+    evaluations,
+    feedback,
+    jobs,
     memories,
     settings,
     system,
@@ -25,6 +28,9 @@ def build_admin_router() -> APIRouter:
     router.include_router(agents.router)
     router.include_router(users.router)
     router.include_router(documents.router)
+    router.include_router(evaluations.router)
+    router.include_router(feedback.router)
+    router.include_router(jobs.router)
     router.include_router(conversations.router)
     router.include_router(memories.router)
     router.include_router(tools.router)

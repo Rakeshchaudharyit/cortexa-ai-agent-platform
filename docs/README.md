@@ -1,19 +1,33 @@
-# Docs
+# Documentation
 
-| Document | Description |
+## Start here
+
+| Document | Purpose |
 | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layered system design and stack boundaries |
-| [AUTHENTICATION.md](AUTHENTICATION.md) | Auth flow, cookies, tokens, password reset, curl examples |
-| [RAG.md](RAG.md) | Documents, embeddings, retrieval, grounded Q&A |
-| [CONVERSATIONS.md](CONVERSATIONS.md) | Phase 5 persistent chat, streaming, edit/regenerate |
-| [AGENT_TOOLS.md](AGENT_TOOLS.md) | Phase 6 agent tools, executor, audit history |
-| [LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md) | Phase 7 long-term memory, privacy, APIs |
-| [ENTERPRISE_ADMIN_PORTAL.md](ENTERPRISE_ADMIN_PORTAL.md) | Phase 8 enterprise admin portal, RBAC, APIs |
-| [MULTI_AGENT_ORCHESTRATION.md](MULTI_AGENT_ORCHESTRATION.md) | Phase 9 multi-agent foundation + execution (backend) |
-| [ROADMAP.md](ROADMAP.md) | Phases 0–13 with acceptance criteria |
-| [SECURITY.md](SECURITY.md) | Local-first security model |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Coding standards, troubleshooting |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Current system architecture and boundaries |
+| [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | GitHub-renderable system, RAG, queue and quality diagrams |
+| [API_OVERVIEW.md](API_OVERVIEW.md) | User/admin API families, streaming and error model |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Local setup and production deployment considerations |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Repeatable 5-minute portfolio walkthrough |
+| [PORTFOLIO_CASE_STUDY.md](PORTFOLIO_CASE_STUDY.md) | Portfolio-ready engineering case study |
+| [GITHUB_PUBLICATION_CHECKLIST.md](GITHUB_PUBLICATION_CHECKLIST.md) | Final public-repository safety/presentation checklist |
+| [GITHUB_PUBLISHING.md](GITHUB_PUBLISHING.md) | Repository naming, topics and clean publication sequence |
+| [LIVE_DEMO_DEPLOYMENT.md](LIVE_DEMO_DEPLOYMENT.md) | HTTPS production-style portfolio deployment |
+| [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | Final repository, product and deployment release gate |
 
-Project overview lives in the root [README.md](../README.md).
+## Product engineering
 
-**Phase 7** adds user-controlled long-term memory. **Phase 8** adds the enterprise administration portal (`/admin`). External SaaS tools, voice, and org/tenant management remain unavailable.
+| Document | Purpose |
+| --- | --- |
+| [AUTHENTICATION.md](AUTHENTICATION.md) | Authentication, refresh sessions and password reset |
+| [RAG.md](RAG.md) | Documents, embeddings, retrieval and grounded answers |
+| [CONVERSATIONS.md](CONVERSATIONS.md) | Persistent conversations and streaming chat |
+| [LONG_TERM_MEMORY.md](LONG_TERM_MEMORY.md) | User-controlled long-term memory |
+| [AGENT_TOOLS.md](AGENT_TOOLS.md) | Safe built-in tool framework and execution history |
+| [ENTERPRISE_ADMIN_PORTAL.md](ENTERPRISE_ADMIN_PORTAL.md) | Admin/RBAC capabilities |
+| [SECURITY.md](SECURITY.md) | Security and privacy controls |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Engineering standards and local development guidance |
+
+## Historical implementation notes
+
+Phase-by-phase implementation and stabilization notes are retained under [`archive/development-history/`](archive/development-history/) for engineering history, but they are intentionally separated from the public product documentation.

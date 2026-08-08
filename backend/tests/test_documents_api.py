@@ -188,3 +188,57 @@ async def test_embeddings_status_public(rag_client: AsyncClient, rag_app: FastAP
     assert body["provider"] == "fake"
     assert body["configured_dimension"] == 768
     assert "status" in body
+
+@pytest.mark.asyncio
+async def test_document_folder_metadata_archive_restore(rag_client: AsyncClient) -> None:
+    token = await _register(rag_client, email="docs-lifecycle@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    folder_response = await rag_client.post(
+        "/api/v1/documents/folders",
+        headers=headers,
+        json={"name": "Architecture", "description": "Platform design documents"},
+    )
+    assert folder_response.status_code == 201, folder_response.text
+    folder_id = folder_response.json()["id"]
+
+    upload = await rag_client.post(
+        "/api/v1/documents",
+        headers=headers,
+        files={"file": ("architecture.txt", sample_txt_bytes(), "text/plain")},
+        data={"folder_id": folder_id},
+    )
+    assert upload.status_code == 201, upload.text
+    document_id = upload.json()["id"]
+    assert upload.json()["folder_id"] == folder_id
+
+    updated = await rag_client.patch(
+        f"/api/v1/documents/{document_id}",
+        headers=headers,
+        json={"title": "Platform Architecture", "folder_id": folder_id, "tags": ["Architecture", "Production"]},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Platform Architecture"
+    assert updated.json()["tags"] == ["architecture", "production"]
+
+    archived = await rag_client.post(f"/api/v1/documents/{document_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["is_archived"] is True
+
+    active_list = await rag_client.get("/api/v1/documents", headers=headers)
+    assert active_list.status_code == 200
+    assert active_list.json()["total"] == 0
+
+    archived_list = await rag_client.get("/api/v1/documents", headers=headers, params={"archived": "true"})
+    assert archived_list.status_code == 200
+    assert archived_list.json()["total"] == 1
+
+    restored = await rag_client.post(f"/api/v1/documents/{document_id}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["is_archived"] is False
+
+    deleted_folder = await rag_client.delete(f"/api/v1/documents/folders/{folder_id}", headers=headers)
+    assert deleted_folder.status_code == 204
+    detail = await rag_client.get(f"/api/v1/documents/{document_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["folder_id"] is None

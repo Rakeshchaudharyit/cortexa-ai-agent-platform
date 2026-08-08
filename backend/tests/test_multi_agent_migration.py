@@ -18,4 +18,4 @@ def test_multi_agent_orchestration_migration_revision_chain() -> None:
     rev = revisions["0011_multi_agent_orchestration"]
     assert rev.down_revision == "0010_admin_deletion_controls"
     heads = set(script.get_heads())
-    assert heads == {"0011_multi_agent_orchestration"}
+    assert heads == {"0019_eval_jobs"}

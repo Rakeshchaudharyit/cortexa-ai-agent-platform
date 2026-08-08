@@ -16,6 +16,7 @@ from app.models import (  # noqa: F401
     AgentRun,
     AgentRunEvent,
     AgentTask,
+    BackgroundJob,
     Conversation,
     Document,
     DocumentChunk,

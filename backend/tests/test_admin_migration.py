@@ -21,7 +21,11 @@ def test_enterprise_admin_migration_revision_chain() -> None:
     rev10 = revisions["0010_admin_deletion_controls"]
     assert rev10.down_revision == "0009_enterprise_admin"
     heads = set(script.get_heads())
-    assert heads == {"0011_multi_agent_orchestration"}
+    assert heads == {"0019_eval_jobs"}
+    assert (
+        revisions["0012_agent_run_telemetry"].down_revision
+        == "0011_multi_agent_orchestration"
+    )
     assert revisions["0011_multi_agent_orchestration"].down_revision == (
         "0010_admin_deletion_controls"
     )

@@ -1,0 +1,15 @@
+cortexa-postgres  | 
+cortexa-postgres  | PostgreSQL Database directory appears to contain a database; Skipping initialization
+cortexa-postgres  | 
+cortexa-postgres  | 2026-08-07 04:23:53.693 UTC [1] LOG:  starting PostgreSQL 17.10 (Debian 17.10-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+cortexa-postgres  | 2026-08-07 04:23:53.695 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+cortexa-postgres  | 2026-08-07 04:23:53.695 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+cortexa-postgres  | 2026-08-07 04:23:53.702 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+cortexa-postgres  | 2026-08-07 04:23:53.706 UTC [29] LOG:  database system was interrupted; last known up at 2026-08-06 09:50:46 UTC
+cortexa-postgres  | 2026-08-07 04:23:53.926 UTC [29] LOG:  database system was not properly shut down; automatic recovery in progress
+cortexa-postgres  | 2026-08-07 04:23:53.928 UTC [29] LOG:  redo starts at 0/45CAAF8
+cortexa-postgres  | 2026-08-07 04:23:53.928 UTC [29] LOG:  invalid record length at 0/45CAC38: expected at least 24, got 0
+cortexa-postgres  | 2026-08-07 04:23:53.928 UTC [29] LOG:  redo done at 0/45CAC00 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+cortexa-postgres  | 2026-08-07 04:23:53.938 UTC [27] LOG:  checkpoint starting: end-of-recovery immediate wait
+cortexa-postgres  | 2026-08-07 04:23:53.951 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.008 s, sync=0.001 s, total=0.014 s; sync files=3, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/45CAC38, redo lsn=0/45CAC38
+cortexa-postgres  | 2026-08-07 04:23:53.959 UTC [1] LOG:  database system is ready to accept connections

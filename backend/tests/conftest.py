@@ -71,7 +71,7 @@ def settings(
 ) -> Iterator[Settings]:
     """Isolated settings for unit tests (no real DB/Redis required)."""
     storage_root = tmp_path_factory.mktemp("document-storage")
-    monkeypatch.setenv("APP_NAME", "Cortexa AI Agent Platform")
+    monkeypatch.setenv("APP_NAME", "Cortexa AI Knowledge Platform")
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("APP_DEBUG", "false")
     monkeypatch.setenv("APP_VERSION", "0.1.0")

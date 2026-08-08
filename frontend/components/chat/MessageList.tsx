@@ -11,7 +11,6 @@ export type StreamingState = {
   userMessageId: string | null;
   assistantMessageId: string | null;
   toolActivity: ToolActivityItem[];
-  /** Shown before the first model token arrives. */
   statusLabel: string | null;
 };
 
@@ -45,11 +44,7 @@ export function MessageList({
   const latestUserMsgId = userMessages.at(-1)?.id;
   const latestAssistantMsgId = assistantMessages.at(-1)?.id;
 
-  const showPreparing =
-    Boolean(streaming) &&
-    !streaming!.content &&
-    streaming!.toolActivity.length === 0;
-
+  const showPreparing = Boolean(streaming) && !streaming!.content && streaming!.toolActivity.length === 0;
   const showStreamingBubble = Boolean(streaming && streaming.content);
 
   const streamingMsg: ConversationMessage | null =
@@ -82,8 +77,11 @@ export function MessageList({
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center" data-testid="messages-loading">
-        <p className="text-sm text-slate-400">Loading conversation…</p>
+      <div className="flex flex-1 items-center justify-center px-6" data-testid="messages-loading">
+        <div className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] px-5 py-4 text-sm text-slate-400">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+          Loading conversation…
+        </div>
       </div>
     );
   }
@@ -91,66 +89,75 @@ export function MessageList({
   if (error) {
     return (
       <div className="flex flex-1 items-center justify-center px-8" data-testid="messages-error">
-        <p className="text-sm text-rose-300">{error}</p>
+        <div className="max-w-md rounded-2xl border border-rose-400/15 bg-rose-500/[0.07] px-5 py-4 text-center">
+          <p className="text-sm text-rose-200">{error}</p>
+        </div>
       </div>
     );
   }
 
   if (messages.length === 0 && !streaming) {
     return (
-      <div
-        className="flex flex-1 flex-col items-center justify-center gap-3 text-center px-8"
-        data-testid="messages-empty"
-      >
-        <p className="text-2xl">💬</p>
-        <p className="text-sm text-slate-400">Start the conversation below.</p>
+      <div className="flex flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-testid="messages-empty">
+        <div className="max-w-2xl text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/15 bg-cyan-400/[0.07] text-sm font-bold text-cyan-200">AI</div>
+          <h2 className="mt-5 text-xl font-semibold text-white">Start with a question</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+            Use General Agent for broad assistance, or Document Knowledge for grounded responses from your governed sources.
+          </p>
+          <div className="mt-6 grid gap-2 text-left sm:grid-cols-2">
+            <div className="cx-panel-soft p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300/75">Document Knowledge</p>
+              <p className="mt-2 text-sm text-slate-300">“Summarize the architecture and cite the source.”</p>
+            </div>
+            <div className="cx-panel-soft p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-violet-300/75">General Agent</p>
+              <p className="mt-2 text-sm text-slate-300">“Turn these requirements into an implementation plan.”</p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div
-      className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4"
+      className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8"
       role="log"
       aria-label="Message history"
       aria-live="polite"
       data-testid="message-list"
     >
-      {messages.map((msg) => (
-        <MessageBubble
-          key={msg.id}
-          message={msg}
-          onEdit={
-            msg.id === latestUserMsgId && onEdit
-              ? (content) => onEdit(msg.id, content)
-              : undefined
-          }
-          onRegenerate={msg.id === latestAssistantMsgId ? onRegenerate : undefined}
-        />
-      ))}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        {messages.map((msg) => (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            onEdit={msg.id === latestUserMsgId && onEdit ? (content) => onEdit(msg.id, content) : undefined}
+            onRegenerate={msg.id === latestAssistantMsgId ? onRegenerate : undefined}
+          />
+        ))}
 
-      {streaming && streaming.toolActivity.length > 0 && (
-        <div className="max-w-[80%]">
-          <ToolActivity items={streaming.toolActivity} />
-        </div>
-      )}
+        {streaming && streaming.toolActivity.length > 0 && (
+          <div className="max-w-[88%] sm:max-w-[78%]">
+            <ToolActivity items={streaming.toolActivity} />
+          </div>
+        )}
 
-      {showPreparing && (
-        <div
-          className="flex max-w-[80%] items-center gap-2 rounded-2xl bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 ring-1 ring-white/10"
-          data-testid="preparing-response"
-          aria-live="polite"
-        >
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
-          {streaming?.statusLabel || "Preparing response…"}
-        </div>
-      )}
+        {showPreparing && (
+          <div
+            className="flex w-fit max-w-[88%] items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-4 py-3 text-sm text-slate-300 shadow-sm shadow-black/10"
+            data-testid="preparing-response"
+            aria-live="polite"
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+            {streaming?.statusLabel || "Preparing response…"}
+          </div>
+        )}
 
-      {streamingMsg && (
-        <MessageBubble key="streaming" message={streamingMsg} isStreaming />
-      )}
-
-      <div ref={bottomRef} />
+        {streamingMsg && <MessageBubble key="streaming" message={streamingMsg} isStreaming />}
+        <div ref={bottomRef} />
+      </div>
     </div>
   );
 }

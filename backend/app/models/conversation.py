@@ -26,6 +26,7 @@ from app.db.base import Base
 from app.models.enums import ConversationStatus, MessageRole, MessageStatus
 
 if TYPE_CHECKING:
+    from app.models.feedback import MessageFeedback
     from app.models.user import User
 
 DEFAULT_CONVERSATION_TITLE = "New conversation"
@@ -244,6 +245,13 @@ class Message(Base):
     )
 
     conversation: Mapped[Conversation] = relationship("Conversation", back_populates="messages")
+    feedback: Mapped["MessageFeedback | None"] = relationship(
+        "MessageFeedback",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="noload",
+    )
     citations: Mapped[list[MessageCitation]] = relationship(
         "MessageCitation",
         back_populates="message",

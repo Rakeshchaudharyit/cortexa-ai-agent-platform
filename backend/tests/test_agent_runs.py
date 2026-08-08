@@ -58,7 +58,7 @@ def test_task_and_approval_transitions() -> None:
 @pytest.mark.asyncio
 async def test_migration_0011_tables_and_seed(db_session: AsyncSession) -> None:
     result = await db_session.execute(text("SELECT version_num FROM alembic_version"))
-    assert result.scalar_one() == "0011_multi_agent_orchestration"
+    assert result.scalar_one() == "0019_eval_jobs"
 
     tables = await db_session.execute(
         text(

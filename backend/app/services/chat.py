@@ -26,6 +26,7 @@ from app.conversations.citations import (
     dedupe_retrieved_chunks,
     normalize_grounded_answer,
     rag_citation_to_response,
+    select_context_chunks,
 )
 from app.conversations.context import ConversationContextBuilder
 from app.conversations.exceptions import (
@@ -174,6 +175,8 @@ class ChatService:
                         .where(
                             Document.user_id == user.id,
                             Document.status == DocumentStatus.ready,
+                Document.archived_at.is_(None),
+                            Document.is_active_version.is_(True),
                         )
                     )
                     or 0
@@ -346,6 +349,8 @@ class ChatService:
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             client_request_id=request.client_request_id,
+            force_multi_agent=request.force_multi_agent,
+            execution_profile=request.execution_profile,
         ):
             yield event
 
@@ -751,7 +756,10 @@ class ChatService:
             document_ids=document_ids,
             top_k=top_k,
         )
-        retrieved = dedupe_retrieved_chunks(retrieved)
+        candidate_count = len(retrieved)
+        retrieved = select_context_chunks(
+            retrieved, max_chars=self.settings.rag_max_context_characters
+        )
         logger.info(
             "retrieval_count user_id=%s conversation_id=%s retrieval_count=%s "
             "general_mode=%s request_id=%s",
@@ -759,6 +767,15 @@ class ChatService:
             conversation.id,
             len(retrieved),
             general_mode,
+            request_id,
+        )
+        logger.info(
+            "rag_context_selected user_id=%s conversation_id=%s candidate_count=%s "
+            "selected_count=%s request_id=%s",
+            user.id,
+            conversation.id,
+            candidate_count,
+            len(retrieved),
             request_id,
         )
 
@@ -913,7 +930,7 @@ class ChatService:
             }
             answer_content = agent_result.content
             if not general_mode and citations:
-                answer_content = normalize_grounded_answer(answer_content)
+                answer_content = normalize_grounded_answer(answer_content, citation_count=len(citations))
             finalized = await self.message_service.finalize_assistant(
                 session,
                 assistant,
@@ -975,7 +992,7 @@ class ChatService:
         usage = generation.usage
         answer_content = generation.content
         if not general_mode and citations:
-            answer_content = normalize_grounded_answer(answer_content)
+            answer_content = normalize_grounded_answer(answer_content, citation_count=len(citations))
         finalized = await self.message_service.finalize_assistant(
             session,
             assistant,
@@ -1026,6 +1043,8 @@ class ChatService:
         temperature: float | None,
         max_tokens: int | None,
         client_request_id: uuid.UUID | None = None,
+        force_multi_agent: bool = False,
+        execution_profile: str = "fast",
     ) -> AsyncIterator[StreamEvent]:
         request_id = request_id_ctx.get() or "-"
         started = time.perf_counter()
@@ -1084,8 +1103,16 @@ class ChatService:
             )
             return
 
-        retrieved = dedupe_retrieved_chunks(retrieved)
+        candidate_count = len(retrieved)
+        retrieved = select_context_chunks(
+            retrieved, max_chars=self.settings.rag_max_context_characters
+        )
+        timing["retrieval_candidate_count"] = candidate_count
         timing["retrieved_chunk_count"] = len(retrieved)
+        timing["retrieval_deduplicated_count"] = max(0, candidate_count - len(retrieved))
+        timing["rag_context_characters"] = sum(
+            len(item.chunk.content.strip()) for item in retrieved
+        )
         logger.info(
             "retrieval_count user_id=%s conversation_id=%s retrieval_count=%s "
             "retrieval_ms=%s request_id=%s",
@@ -1111,7 +1138,11 @@ class ChatService:
                 )
 
         preliminary_decision = None
-        if self.multi_agent_enabled and self.multi_agent_service is not None:
+        if (
+            self.multi_agent_enabled
+            and self.multi_agent_service is not None
+            and not force_multi_agent
+        ):
             preliminary_decision = await self.multi_agent_service.classify(
                 user_message=user_message.content,
                 conversation_mode=resolve_conversation_mode(document_ids),
@@ -1120,9 +1151,12 @@ class ChatService:
                 conversation_context_summary=conversation.summary,
             )
         defer_persistent_writes = bool(
-            preliminary_decision is not None
-            and self.multi_agent_service is not None
-            and self.multi_agent_service.should_use_multi_agent(preliminary_decision)
+            force_multi_agent
+            or (
+                preliminary_decision is not None
+                and self.multi_agent_service is not None
+                and self.multi_agent_service.should_use_multi_agent(preliminary_decision)
+            )
         )
         memory_turn = await prepare_memory_for_turn(
             session=session,
@@ -1177,6 +1211,21 @@ class ChatService:
 
         if retrieval_attempted and not retrieved:
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            timing["total_request_ms"] = latency_ms
+            timing["citation_count"] = 0
+            assistant.message_metadata = {
+                **(assistant.message_metadata or {}),
+                "rag_timing": {
+                    key: timing.get(key)
+                    for key in (
+                        "retrieval_ms",
+                        "total_request_ms",
+                        "retrieved_chunk_count",
+                        "citation_count",
+                    )
+                },
+                "observability": {"outcome": "no_answer", "safe": True},
+            }
             finalized = await self.message_service.finalize_assistant(
                 session,
                 assistant,
@@ -1275,15 +1324,21 @@ class ChatService:
                 memory_enabled=memory_turn.memory_enabled,
                 has_accessible_documents=bool(retrieved),
             )
-            decision = preliminary_decision or await self.multi_agent_service.classify(
-                user_message=user_message.content,
-                conversation_mode=conversation_mode,
-                selected_document_ids=document_ids,
-                memory_enabled=memory_turn.memory_enabled,
-                selected_tool_intent=selection.selected_tool_names,
-                conversation_context_summary=conversation.summary,
+            decision = preliminary_decision
+            if decision is None and not force_multi_agent:
+                decision = await self.multi_agent_service.classify(
+                    user_message=user_message.content,
+                    conversation_mode=conversation_mode,
+                    selected_document_ids=document_ids,
+                    memory_enabled=memory_turn.memory_enabled,
+                    selected_tool_intent=selection.selected_tool_names,
+                    conversation_context_summary=conversation.summary,
+                )
+            should_coordinate = force_multi_agent or (
+                decision is not None
+                and self.multi_agent_service.should_use_multi_agent(decision)
             )
-            if self.multi_agent_service.should_use_multi_agent(decision):
+            if should_coordinate:
                 from app.agents.api import safe_metadata
 
                 history_payload = [
@@ -1299,9 +1354,21 @@ class ChatService:
                     task_id: uuid.UUID | None,
                     metadata: dict[str, object],
                 ) -> None:
-                    # Checkpoint state before exposing it. This makes the run
-                    # visible to the owner-only cancel API while it is active.
-                    await session.commit()
+                    # Never commit the coordinator-owned AsyncSession from an SSE
+                    # callback. Mid-run commits can invalidate ORM state while a
+                    # provider await is active and previously caused MissingGreenlet
+                    # failures on the next task transition. The coordinator creates
+                    # an explicit durable start checkpoint; subsequent events are
+                    # delivered live over SSE and committed atomically at completion.
+                    logger.info(
+                        "agent_sse_event correlation_id=%s run_id=%s event_type=%s "
+                        "agent_key=%s task_id=%s",
+                        str(client_request_id or assistant.id),
+                        run_id,
+                        event_type,
+                        agent_key or "-",
+                        task_id or "-",
+                    )
                     try:
                         stream_type = StreamEventType(event_type)
                     except ValueError:
@@ -1334,10 +1401,23 @@ class ChatService:
                         memory_context=[
                             item.model_dump(mode="json") for item in memory_turn.retrieved
                         ],
-                        document_context=[],
+                        document_context=[
+                            {
+                                "index": index,
+                                "document_id": str(item.document.id),
+                                "title": item.document.original_filename
+                                or item.document.title
+                                or "Document",
+                                "content": (item.chunk.content or "")[:2000],
+                                "score": round(float(item.similarity), 4),
+                            }
+                            for index, item in enumerate(retrieved[:12], start=1)
+                        ],
                         correlation_id=str(client_request_id or assistant.id),
                         enabled_tool_names=frozenset(selection.selected_tool_names),
                         event_callback=on_agent_event,
+                        force_multi_agent=force_multi_agent,
+                        execution_profile=execution_profile,
                     ),
                     name=f"multi-agent-run-{assistant.id}",
                 )
@@ -1361,6 +1441,13 @@ class ChatService:
                                 pass
                     result = await execution_task
                 except asyncio.CancelledError:
+                    logger.warning(
+                        "agent_sse_disconnected correlation_id=%s conversation_id=%s "
+                        "assistant_message_id=%s",
+                        str(client_request_id or assistant.id),
+                        conversation.id,
+                        assistant.id,
+                    )
                     execution_task.cancel()
                     try:
                         await execution_task
@@ -1462,6 +1549,15 @@ class ChatService:
                         "agent_run_id": str(result.run.id),
                         "message": message_to_response(finalized).model_dump(mode="json"),
                     },
+                )
+                logger.info(
+                    "agent_sse_completed correlation_id=%s run_id=%s "
+                    "conversation_id=%s assistant_message_id=%s content_chars=%s",
+                    str(client_request_id or assistant.id),
+                    result.run.id,
+                    conversation.id,
+                    finalized.id,
+                    len(finalized.content or ""),
                 )
                 return
 
@@ -1723,7 +1819,7 @@ class ChatService:
                 return
 
             if not general_mode and citations:
-                accumulated = normalize_grounded_answer(accumulated)
+                accumulated = normalize_grounded_answer(accumulated, citation_count=len(citations))
 
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             timing["total_request_ms"] = latency_ms
@@ -1951,7 +2047,7 @@ class ChatService:
             return
 
         if not general_mode and citations:
-            accumulated = normalize_grounded_answer(accumulated)
+            accumulated = normalize_grounded_answer(accumulated, citation_count=len(citations))
 
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
         timing["total_request_ms"] = latency_ms

@@ -441,6 +441,67 @@ async def test_task_timeout_works(settings: Settings, db_session: AsyncSession) 
 
 
 @pytest.mark.asyncio
+async def test_conversation_timeout_uses_deterministic_fallback(
+    settings: Settings, db_session: AsyncSession
+) -> None:
+    user = _user("coord-conversation-timeout@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    settings.__dict__["agent_task_timeout_seconds"] = 0.01
+    engine = _engine(settings)
+
+    async def slow_conversation(*args: Any, **kwargs: Any) -> AgentTaskResult:
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        return AgentTaskResult(
+            success=True,
+            agent_name="conversation",
+            task_type="synthesize",
+            result_summary="late",
+            output={"content": "late"},
+        )
+
+    engine.conversation.execute = slow_conversation  # type: ignore[method-assign]
+    result = await engine.execute(
+        db_session,
+        CoordinatorRequest(
+            user=user,
+            user_message=(
+                "Review the selected contract, identify risks, calculate a 15 percent "
+                "contingency, and prepare a recommendation."
+            ),
+            conversation_mode="document",
+            selected_document_ids=[uuid.uuid4()],
+            correlation_id="c-conversation-timeout",
+            enabled_tool_names=frozenset({"calculator"}),
+            document_context=[
+                {
+                    "title": "Contract",
+                    "content": "The contract lists operational risks but no numeric budget.",
+                }
+            ],
+        ),
+    )
+
+    assert result.run is not None
+    assert result.run.status == AgentRunStatus.completed
+    assert result.final_content
+    assert "numeric baseline budget" in result.final_content
+    tasks = (
+        await db_session.scalars(select(AgentTask).where(AgentTask.agent_run_id == result.run.id))
+    ).all()
+    conversation_task = next(t for t in tasks if t.assigned_agent_key == "conversation")
+    assert conversation_task.status == AgentTaskStatus.succeeded
+    events, _ = await engine.repository.list_events(db_session, result.run)
+    assert any(
+        event.event_type == "task_completed"
+        and (event.safe_metadata_json or {}).get("degraded_synthesis") is True
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
 async def test_multi_agent_service_feature_gate(
     settings: Settings, db_session: AsyncSession
 ) -> None:

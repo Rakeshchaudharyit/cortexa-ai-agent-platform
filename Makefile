@@ -1,16 +1,17 @@
-# Cortexa AI Agent Platform — developer commands (Phase 5)
+# Cortexa AI Knowledge Platform — developer commands
 
 .PHONY: help install dev up down build logs backend-logs frontend-logs \
 	test test-backend test-frontend lint format typecheck migrate \
 	health ready validate clean compose-config compose-identity auth-hostname \
 	secrets-check reset-dev-database \
 	test-services-up test-db-migrate test-services-down test-services-reset \
-	validate-preserve-before validate-preserve-after validate-preserve-compare
+	validate-preserve-before validate-preserve-after validate-preserve-compare \
+	production-config release-preflight
 
 COMPOSE_TEST := COMPOSE_IGNORE_ORPHANS=1 docker compose -p cortexa-test -f docker-compose.test.yml
 
 help:
-	@echo "Cortexa AI Agent Platform — Phase 5"
+	@echo "Cortexa AI Knowledge Platform"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install         Install backend + frontend dependencies locally"
@@ -48,6 +49,8 @@ help:
 	@echo "  make ready           curl GET /ready"
 	@echo "  make clean           Remove caches and local build artifacts"
 	@echo "  make compose-config  Validate docker compose config"
+	@echo "  make production-config Validate production Compose template"
+	@echo "  make release-preflight Run GitHub/deployment publication preflight"
 	@echo "  make secrets-check   Heuristic scan for private key blocks"
 
 install:
@@ -168,6 +171,16 @@ compose-config:
 	@$(COMPOSE_TEST) config >/dev/null
 	@echo "docker compose config: OK (dev + test)"
 
+production-config:
+	@created=0; \
+		if [ ! -f .env.production ]; then cp .env.production.example .env.production; created=1; fi; \
+		docker compose --env-file .env.production -f docker-compose.production.yml config >/dev/null; \
+		if [ $$created -eq 1 ]; then rm -f .env.production; fi
+	@echo "production compose config: OK"
+
+release-preflight:
+	@./scripts/release-preflight.sh
+
 compose-identity:
 	@./scripts/check_compose_identity.sh
 
@@ -180,7 +193,20 @@ reset-dev-database:
 
 secrets-check:
 	@if command -v rg >/dev/null 2>&1; then \
-		if rg -n --hidden -g '!.git/**' -g '!.env.example' \
+		if rg -n --hidden \
+			-g '!.git/**' \
+			-g '!**/node_modules/**' \
+			-g '!**/.next/**' \
+			-g '!**/.venv/**' \
+			-g '!**/__pycache__/**' \
+			-g '!**/.pytest_cache/**' \
+			-g '!**/.mypy_cache/**' \
+			-g '!**/.ruff_cache/**' \
+			-g '!**/coverage/**' \
+			-g '!**/htmlcov/**' \
+			-g '!*.log' \
+			-g '!make_validate*.txt' \
+			-g '!.env.example' \
 			-e 'BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY' \
 			-e 'AKIA[0-9A-Z]{16}' \
 			. ; then \
@@ -189,7 +215,20 @@ secrets-check:
 		fi; \
 	else \
 		if grep -R -n -E 'BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY|AKIA[0-9A-Z]{16}' \
-			--exclude-dir=.git --exclude=.env.example . ; then \
+			--exclude-dir=.git \
+			--exclude-dir=node_modules \
+			--exclude-dir=.next \
+			--exclude-dir=.venv \
+			--exclude-dir=__pycache__ \
+			--exclude-dir=.pytest_cache \
+			--exclude-dir=.mypy_cache \
+			--exclude-dir=.ruff_cache \
+			--exclude-dir=coverage \
+			--exclude-dir=htmlcov \
+			--exclude='*.log' \
+			--exclude='make_validate*.txt' \
+			--exclude=.env.example \
+			. ; then \
 			echo "secrets-check: FAILED — possible secret material detected"; \
 			exit 1; \
 		fi; \

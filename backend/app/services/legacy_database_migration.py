@@ -200,7 +200,7 @@ class LegacyDatabaseMigrator:
 
                 if profile != SourceSchemaProfile.agent_platform:
                     report.warnings.append(
-                        "Source schema is not the Cortexa AI Agent Platform schema."
+                        "Source schema is not the Cortexa AI Knowledge Platform schema."
                     )
                     report.conflicts.append(
                         "Refusing automatic recovery from incompatible product schema."

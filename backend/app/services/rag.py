@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.conversations.citations import dedupe_retrieved_chunks, normalize_grounded_answer
+from app.conversations.citations import (
+    normalize_grounded_answer,
+    select_context_chunks,
+)
 from app.core.config import Settings
 from app.core.logging import request_id_ctx
 from app.documents.schemas import RagCitation, RagQueryRequest, RagQueryResponse
@@ -68,7 +71,19 @@ class RagService:
             top_k=request.top_k,
             document_ids=request.document_ids,
         )
-        retrieved = dedupe_retrieved_chunks(retrieved)
+        candidate_count = len(retrieved)
+        retrieved = select_context_chunks(
+            retrieved, max_chars=self.settings.rag_max_context_characters
+        )
+        logger.info(
+            "rag_context_selected user_id=%s candidate_count=%s selected_count=%s "
+            "context_chars=%s request_id=%s",
+            user.id,
+            candidate_count,
+            len(retrieved),
+            sum(len(item.chunk.content.strip()) for item in retrieved),
+            request_id,
+        )
 
         if not retrieved:
             logger.info(
@@ -122,7 +137,9 @@ class RagService:
             request_id,
         )
         return RagQueryResponse(
-            answer=normalize_grounded_answer(generation.content),
+            answer=normalize_grounded_answer(
+                generation.content, citation_count=len(citations)
+            ),
             citations=citations,
             retrieval_count=len(retrieved),
             model=generation.model,

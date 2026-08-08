@@ -6,15 +6,19 @@ import { AuthProvider } from "@/components/AuthProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cortexa AI Agent Platform",
+  title: {
+    default: "Cortexa AI Knowledge Platform",
+    template: "%s · Cortexa",
+  },
   description:
-    "Secure local AI assistant with authentication, document intelligence, persistent conversations, and auditable agent tools.",
+    "Production-oriented enterprise RAG platform with governed knowledge, AI quality evaluation, analytics, feedback review, and durable background operations.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen antialiased">
+        <a href="#main-content" className="cx-skip-link">Skip to main content</a>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

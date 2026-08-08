@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.feedback_schemas import MessageFeedbackView
 from app.tools.schemas import ToolExecutionSummary
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -124,6 +126,8 @@ class MessageResponse(BaseModel):
     citations: list[MessageCitationResponse] = Field(default_factory=list)
     tool_execution_ids: list[str] = Field(default_factory=list)
     tool_executions: list[ToolExecutionSummary] = Field(default_factory=list)
+    agent_run_id: str | None = None
+    feedback: MessageFeedbackView | None = None
 
 
 class ConversationDetailResponse(BaseModel):
@@ -142,6 +146,7 @@ class ConversationDetailResponse(BaseModel):
     has_more_messages: bool = False
     memory_enabled: bool | None = None
     memory_context_used: int = 0
+    active_agent_run_id: uuid.UUID | None = None
 
 
 class ConversationListResponse(BaseModel):
@@ -158,6 +163,8 @@ class CreateMessageRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
     client_request_id: uuid.UUID | None = None
+    force_multi_agent: bool = False
+    execution_profile: Literal["fast", "balanced", "deep"] = "fast"
 
     @field_validator("content")
     @classmethod

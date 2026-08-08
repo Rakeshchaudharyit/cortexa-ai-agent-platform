@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = Field(default="Cortexa AI Agent Platform", alias="APP_NAME")
+    app_name: str = Field(default="Cortexa AI Knowledge Platform", alias="APP_NAME")
     app_env: Literal["development", "test", "staging", "production"] = Field(
         default="development",
         alias="APP_ENV",
@@ -523,23 +523,33 @@ class Settings(BaseSettings):
     )
 
     # Multi-agent orchestration (Phase 9)
-    multi_agent_enabled: bool = Field(default=True, alias="MULTI_AGENT_ENABLED")
-    agent_max_tasks: int = Field(default=8, ge=1, le=16, alias="AGENT_MAX_TASKS")
+    multi_agent_enabled: bool = Field(default=False, alias="MULTI_AGENT_ENABLED")
+    agent_max_tasks: int = Field(default=4, ge=1, le=16, alias="AGENT_MAX_TASKS")
     agent_max_depth: int = Field(default=2, ge=0, le=4, alias="AGENT_MAX_DEPTH")
     agent_max_steps: int = Field(default=12, ge=1, le=32, alias="AGENT_MAX_STEPS")
     agent_max_llm_calls: int = Field(default=12, ge=1, le=32, alias="AGENT_MAX_LLM_CALLS")
     agent_max_tool_calls: int = Field(default=8, ge=1, le=32, alias="AGENT_MAX_TOOL_CALLS")
     agent_run_timeout_seconds: int = Field(
-        default=120,
+        default=90,
         ge=10,
         le=600,
         alias="AGENT_RUN_TIMEOUT_SECONDS",
     )
     agent_task_timeout_seconds: int = Field(
-        default=45,
+        default=35,
         ge=5,
         le=300,
         alias="AGENT_TASK_TIMEOUT_SECONDS",
+    )
+    agent_synthesis_timeout_seconds: int = Field(
+        default=20,
+        ge=5,
+        le=120,
+        alias="AGENT_SYNTHESIS_TIMEOUT_SECONDS",
+    )
+    agent_interactive_fast_mode: bool = Field(
+        default=True,
+        alias="AGENT_INTERACTIVE_FAST_MODE",
     )
     agent_max_retries: int = Field(default=1, ge=0, le=3, alias="AGENT_MAX_RETRIES")
     agent_max_replans: int = Field(default=1, ge=0, le=3, alias="AGENT_MAX_REPLANS")

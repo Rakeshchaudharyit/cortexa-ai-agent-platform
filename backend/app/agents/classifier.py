@@ -113,10 +113,10 @@ class ComplexityClassifier:
                 and re.search(r"\b(time|date|now|today|timezone|clock)\b", text, re.IGNORECASE)
             )
         )
-        needs_knowledge = bool(
-            (doc_mode and (has_docs or _KNOWLEDGE_EXPLICIT.search(text)))
-            or _KNOWLEDGE_EXPLICIT.search(text)
-        )
+        # Document Knowledge mode is an explicit user choice to use authorized
+        # document context. `selected_document_ids=[]` can mean "all ready
+        # documents", so do not require an explicit ID list here.
+        needs_knowledge = bool(doc_mode or _KNOWLEDGE_EXPLICIT.search(text))
         needs_memory_read = bool(
             payload.memory_enabled
             and (

@@ -162,6 +162,73 @@ This repository demonstrates practical engineering for roles involving:
 
 The emphasis is on measurable, maintainable AI systems rather than prompt-only demos.
 
+## Product showcase
+
+These are real screenshots from the working Cortexa platform.
+
+### Grounded RAG Knowledge Chat
+
+Ask questions against private knowledge sources and receive grounded answers with document citations and controlled no-answer behavior.
+
+![Grounded RAG Knowledge Chat](docs/screenshots/02-knowledge-chat.png)
+
+---
+
+### Enterprise AI Analytics
+
+Monitor AI quality, knowledge health, evaluation performance, feedback, citations, latency, model usage, and operational reliability.
+
+![Enterprise AI Analytics](docs/screenshots/05-ai-analytics.png)
+
+---
+
+### Knowledge Library & Document Governance
+
+Manage enterprise knowledge through document uploads, folders, metadata, lifecycle states, versioning, indexing, and active-version controls.
+
+![Knowledge Library](docs/screenshots/03-knowledge-library.png)
+
+---
+
+### Automated RAG Evaluation
+
+Create reusable evaluation cases and execute regression tests against the RAG pipeline to measure answer quality over time.
+
+![RAG Evaluation Framework](docs/screenshots/04-rag-evaluations.png)
+
+---
+
+### Human-in-the-Loop Feedback Review
+
+Capture user feedback, investigate problematic AI responses, add administrator notes, and move issues through review and resolution workflows.
+
+![AI Feedback Review](docs/screenshots/06-feedback-review.png)
+
+---
+
+### Background Jobs & AI Operations
+
+Monitor asynchronous ingestion and evaluation workloads with worker health, progress tracking, retries, cancellation, dead-letter handling, and administrative requeue controls.
+
+![Background Jobs](docs/screenshots/07-background-jobs.png)
+
+<details>
+<summary><strong>View additional platform screenshots</strong></summary>
+
+### Public Product Experience
+
+![Cortexa Public Landing Page](docs/screenshots/01-public-landing.png)
+
+### User Administration
+
+![Cortexa User Administration](docs/screenshots/08-admin-users.png)
+
+### Enterprise Admin Dashboard
+
+![Cortexa Admin Dashboard](docs/screenshots/09-admin-dashboard.png)
+
+</details>
+
 ## License
 
 Proprietary — all rights reserved unless otherwise stated. Public source availability does not grant reuse, redistribution, or commercial rights.
